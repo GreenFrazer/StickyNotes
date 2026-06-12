@@ -1,0 +1,641 @@
+"""Auto-hiding dock widgets — one per monitor."""
+
+from __future__ import annotations
+
+import sys
+from collections.abc import Callable
+from typing import Any
+
+from PyQt6.QtCore import (
+    QPoint,
+    QPropertyAnimation,
+    QRect,
+    QEasingCurve,
+    Qt,
+    QTimer,
+    pyqtSignal,
+)
+from PyQt6.QtGui import QCursor
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
+
+from stickynotes.models import fmt_dt
+from stickynotes.theme import NOTE_COLOURS, TITLE_BAR_COLOURS
+
+
+def _make_dock_btn(icon: str, label_text: str, signal) -> QWidget:
+    w = QWidget()
+    w.setFixedWidth(56)
+    lo = QVBoxLayout(w)
+    lo.setContentsMargins(0, 0, 0, 0)
+    lo.setSpacing(1)
+    lo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    btn = QPushButton(icon)
+    btn.setToolTip(label_text)
+    btn.setFixedSize(44, 44)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.clicked.connect(signal.emit)
+    btn.setObjectName("dockBtn")
+    lo.addWidget(btn, 0, Qt.AlignmentFlag.AlignCenter)
+    lbl = QLabel(label_text)
+    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    lbl.setObjectName("dockLabel")
+    lo.addWidget(lbl, 0, Qt.AlignmentFlag.AlignCenter)
+    w.btn = btn  # type: ignore[attr-defined]
+    return w
+
+
+def _make_sep(horiz: bool = False) -> QFrame:
+    sep = QFrame()
+    sep.setObjectName("dockSep")
+    if horiz:
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFixedWidth(2)
+        sep.setFixedHeight(44)
+    else:
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFixedHeight(2)
+    return sep
+
+
+class DockNotePopup(QWidget):
+    clicked = pyqtSignal(str)
+
+    def __init__(
+        self,
+        note_data: dict[str, Any],
+        content_getter: Callable[[str], str],
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.note_id = note_data["id"]
+        self._content_getter = content_getter
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setFixedSize(240, 200)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._copy_revert = QTimer(self)
+        self._copy_revert.setSingleShot(True)
+        self._copy_revert.setInterval(1000)
+        self._build(note_data)
+
+    def _build(self, d: dict[str, Any]) -> None:
+        cn = d.get("colour", "yellow")
+        bg = NOTE_COLOURS.get(cn, "#FDFD96")
+        tb = TITLE_BAR_COLOURS.get(cn, "#E8E85C")
+        title = QWidget(self)
+        title.setFixedHeight(28)
+        title.setObjectName("pTitleBar")
+        tl = QHBoxLayout(title)
+        tl.setContentsMargins(8, 2, 4, 2)
+        tl.addStretch()
+        self.btn_copy = QPushButton("\U0001F4CB", title)
+        self.btn_copy.setFixedSize(22, 22)
+        self.btn_copy.setToolTip("Copy to clipboard")
+        self.btn_copy.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_copy.setStyleSheet(
+            "QPushButton{background:rgba(255,255,255,0.5);border:none;border-radius:4px;font-size:11px;color:#333;}"
+            "QPushButton:hover{background:rgba(255,255,255,0.8);}"
+        )
+        self.btn_copy.clicked.connect(self._copy)
+        self._copy_revert.timeout.connect(
+            lambda: self.btn_copy.setText("\U0001F4CB")
+        )
+        tl.addWidget(self.btn_copy)
+        content = d.get("content", "")
+        self.preview = QLabel(content[:300] if content else "")
+        self.preview.setWordWrap(True)
+        self.preview.setObjectName("pText")
+        self.preview.setAlignment(Qt.AlignmentFlag.AlignTop)
+        crow = QWidget()
+        crow.setFixedHeight(22)
+        crow.setObjectName("pColourRow")
+        cl = QHBoxLayout(crow)
+        cl.setContentsMargins(8, 2, 8, 2)
+        cl.setSpacing(4)
+        for nm, hc in NOTE_COLOURS.items():
+            dot = QFrame(crow)
+            dot.setFixedSize(12, 12)
+            brd = "2px solid #333" if nm == cn else "1px solid #aaa"
+            dot.setStyleSheet(f"background:{hc};border:{brd};border-radius:6px;")
+            cl.addWidget(dot)
+        cl.addStretch()
+        chars = len(content)
+        mod = d.get("modified_at", "")
+        self.ts_label = QLabel(
+            f"{chars} chars  \u00B7  Modified: {fmt_dt(mod)}" if mod else ""
+        )
+        self.ts_label.setObjectName("pTs")
+        lo = QVBoxLayout(self)
+        lo.setContentsMargins(0, 0, 0, 4)
+        lo.setSpacing(0)
+        lo.addWidget(title)
+        lo.addWidget(self.preview, 1)
+        lo.addWidget(crow)
+        lo.addWidget(self.ts_label)
+        self.setStyleSheet(f"""
+            DockNotePopup {{background:{bg};border:1px solid {tb};border-radius:8px;}}
+            #pTitleBar {{background:{tb};border-top-left-radius:8px;border-top-right-radius:8px;}}
+            #pText {{font-size:12px;color:#222;padding:6px;background:transparent;}}
+            #pColourRow {{background:transparent;}}
+            #pTs {{font-size:9px;color:#777;font-style:italic;padding:2px 8px;background:transparent;}}
+        """)
+
+    def update_content(self, note_data: dict[str, Any]) -> None:
+        content = note_data.get("content", "")
+        self.preview.setText(content[:300] if content else "")
+        mod = note_data.get("modified_at", "")
+        chars = len(content)
+        self.ts_label.setText(
+            f"{chars} chars  \u00B7  Modified: {fmt_dt(mod)}" if mod else ""
+        )
+
+    def _copy(self) -> None:
+        cb = QApplication.clipboard()
+        if cb:
+            cb.setText(self._content_getter(self.note_id))
+        self.btn_copy.setText("\u2713")
+        self._copy_revert.start()
+
+    def mousePressEvent(self, e) -> None:
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.note_id)
+        super().mousePressEvent(e)
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        if sys.platform == "darwin":
+            try:
+                from stickynotes.platform.macos.windows import configure_floating_window
+
+                configure_floating_window(self, on_top=True)
+            except Exception:
+                pass
+
+
+class DockNoteIndicator(QFrame):
+    sig_click = pyqtSignal(str)
+    sig_hover_enter = pyqtSignal(str, QPoint)
+    sig_hover_leave = pyqtSignal(str)
+
+    def __init__(
+        self,
+        note_data: dict[str, Any],
+        content_getter: Callable[[str], str],
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.note_id = note_data["id"]
+        self._content_getter = content_getter
+        self._colour = note_data.get("colour", "yellow")
+        self.setFixedSize(44, 44)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        lo = QVBoxLayout(self)
+        lo.setContentsMargins(2, 1, 2, 2)
+        lo.setSpacing(0)
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(0)
+        top.addStretch()
+        self.btn_copy = QPushButton("\U0001F4CB", self)
+        self.btn_copy.setFixedSize(18, 18)
+        self.btn_copy.setToolTip("Copy")
+        self.btn_copy.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_copy.setStyleSheet(
+            "QPushButton{background:rgba(255,255,255,0.5);border:none;border-radius:4px;font-size:10px;color:#444;}"
+            "QPushButton:hover{background:rgba(255,255,255,0.85);}"
+        )
+        self.btn_copy.clicked.connect(self._do_copy)
+        self._copy_revert = QTimer(self)
+        self._copy_revert.setSingleShot(True)
+        self._copy_revert.setInterval(1000)
+        self._copy_revert.timeout.connect(
+            lambda: self.btn_copy.setText("\U0001F4CB")
+        )
+        top.addWidget(self.btn_copy)
+        lo.addLayout(top)
+        self.lbl_preview = QLabel(self)
+        self.lbl_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_preview.setStyleSheet(
+            "font-size:9px;color:#444;background:transparent;"
+        )
+        lo.addWidget(self.lbl_preview)
+        self._apply_appearance(note_data)
+
+    def _apply_appearance(self, note_data: dict[str, Any]) -> None:
+        self._colour = note_data.get("colour", "yellow")
+        cn = self._colour
+        bg = NOTE_COLOURS.get(cn, "#FDFD96")
+        tb = TITLE_BAR_COLOURS.get(cn, "#E8E85C")
+        txt = note_data.get("content", "").strip()[:4] or "\u2026"
+        self.lbl_preview.setText(txt)
+        self.setStyleSheet(f"""
+            DockNoteIndicator {{background:{bg};border:2px solid {tb};border-radius:8px;}}
+            DockNoteIndicator:hover {{border:2px solid #555;background:{tb};}}
+        """)
+
+    def update_note(self, note_data: dict[str, Any]) -> None:
+        self._apply_appearance(note_data)
+
+    def _do_copy(self) -> None:
+        cb = QApplication.clipboard()
+        if cb:
+            cb.setText(self._content_getter(self.note_id))
+        self.btn_copy.setText("\u2713")
+        self._copy_revert.start()
+
+    def mousePressEvent(self, e) -> None:
+        if e.button() == Qt.MouseButton.LeftButton:
+            child = self.childAt(e.pos())
+            if child is not self.btn_copy:
+                self.sig_click.emit(self.note_id)
+        super().mousePressEvent(e)
+
+    def enterEvent(self, e) -> None:
+        self.sig_hover_enter.emit(self.note_id, self.mapToGlobal(QPoint(0, 0)))
+        super().enterEvent(e)
+
+    def leaveEvent(self, e) -> None:
+        self.sig_hover_leave.emit(self.note_id)
+        super().leaveEvent(e)
+
+
+class DockWidget(QWidget):
+    sig_new_note = pyqtSignal()
+    sig_show_all = pyqtSignal()
+    sig_hide_all = pyqtSignal()
+    sig_settings = pyqtSignal()
+    sig_exit = pyqtSignal()
+    sig_card_click = pyqtSignal(str)
+
+    THICK = 72
+    TRIGGER = 4
+    ANIM_MS = 200
+    HIDE_MS = 600
+
+    _SCROLL_CSS = """
+        QScrollArea{background:transparent;border:none;}
+        QScrollBar:vertical{background:transparent;width:6px;margin:2px 0;}
+        QScrollBar::handle:vertical{background:rgba(255,255,255,0.2);border-radius:3px;min-height:20px;}
+        QScrollBar::handle:vertical:hover{background:rgba(255,255,255,0.35);}
+        QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}
+        QScrollBar:horizontal{background:transparent;height:6px;margin:0 2px;}
+        QScrollBar::handle:horizontal{background:rgba(255,255,255,0.2);border-radius:3px;min-width:20px;}
+        QScrollBar::handle:horizontal:hover{background:rgba(255,255,255,0.35);}
+        QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{width:0;}
+    """
+
+    def __init__(
+        self,
+        position: str = "top",
+        dark_mode: bool = False,
+        screen_geo: QRect | None = None,
+        screen=None,
+        content_getter: Callable[[str], str] | None = None,
+    ) -> None:
+        super().__init__()
+        self._pos = position
+        self._dark = dark_mode
+        self._screen = screen
+        self._screen_geo = screen_geo or QRect(0, 0, 1920, 1080)
+        self._content_getter = content_getter or (lambda _nid: "")
+        self._shown = False
+        self._anim = None
+        self._btn_widgets: list[QWidget] = []
+        self._indicators: list[DockNoteIndicator] = []
+        self._indicator_map: dict[str, DockNoteIndicator] = {}
+        self._popup: DockNotePopup | None = None
+        self._popup_timer = QTimer(self)
+        self._popup_timer.setSingleShot(True)
+        self._popup_timer.setInterval(300)
+        self._popup_timer.timeout.connect(self._hide_popup)
+        self._notes_data: dict[str, dict[str, Any]] = {}
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self._build_ui()
+        self._apply_style()
+        self._poll = QTimer(self)
+        self._poll.setInterval(50)
+        self._poll.timeout.connect(self._poll_mouse)
+        self._poll.start()
+        self._hide_tmr = QTimer(self)
+        self._hide_tmr.setSingleShot(True)
+        self._hide_tmr.setInterval(self.HIDE_MS)
+        self._hide_tmr.timeout.connect(self._slide_out)
+        if self._screen is not None:
+            self._screen.geometryChanged.connect(self._on_screen_changed)
+            self._screen.availableGeometryChanged.connect(self._on_screen_changed)
+        self._place_hidden()
+
+    def _build_ui(self) -> None:
+        horiz = self._pos == "top"
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(4, 4, 4, 4)
+        outer.setSpacing(4)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setStyleSheet(self._SCROLL_CSS)
+        if horiz:
+            self.scroll.setVerticalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            self.scroll.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            )
+        else:
+            self.scroll.setVerticalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            )
+            self.scroll.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+        self.ind_container = QWidget()
+        self.ind_container.setStyleSheet("background:transparent;")
+        self.ind_layout = (
+            QHBoxLayout(self.ind_container)
+            if horiz
+            else QVBoxLayout(self.ind_container)
+        )
+        self.ind_layout.setContentsMargins(0, 0, 0, 0)
+        self.ind_layout.setSpacing(4)
+        self.ind_layout.addStretch()
+        self.scroll.setWidget(self.ind_container)
+        outer.addWidget(self.scroll, 1)
+        outer.addStretch()
+        btn_groups = [
+            [("\u2795", "New Note", self.sig_new_note)],
+            [
+                ("\U0001F4CB", "Show All", self.sig_show_all),
+                ("\U0001F648", "Hide All", self.sig_hide_all),
+                ("\u2699", "Settings", self.sig_settings),
+            ],
+            [("\u274C", "Exit", self.sig_exit)],
+        ]
+        self._btn_widgets = []
+        btn_lay = QHBoxLayout() if horiz else QVBoxLayout()
+        if horiz:
+            btn_lay.addStretch()
+        btn_lay.setContentsMargins(0, 0, 0, 0)
+        btn_lay.setSpacing(2)
+        for group in btn_groups:
+            btn_lay.addWidget(_make_sep(horiz))
+            for icon, label, sig in group:
+                bw = _make_dock_btn(icon, label, sig)
+                btn_lay.addWidget(bw)
+                self._btn_widgets.append(bw)
+        outer.addLayout(btn_lay)
+
+    def _apply_style(self) -> None:
+        bg = "rgba(25,25,25,235)" if self._dark else "rgba(40,40,40,225)"
+        self.setStyleSheet(f"""
+            DockWidget{{background:{bg};border-radius:10px;}}
+            #dockBtn{{background:rgba(255,255,255,0.07);border:none;border-radius:10px;font-size:19px;color:#eee;}}
+            #dockBtn:hover{{background:rgba(255,255,255,0.22);}}
+            #dockBtn:pressed{{background:rgba(255,255,255,0.35);}}
+            #dockLabel{{color:#aaa;font-size:9px;background:transparent;border:none;}}
+            #dockSep{{color:rgba(255,255,255,0.15);background:rgba(255,255,255,0.15);}}
+        """)
+
+    def set_dark_mode(self, d: bool) -> None:
+        self._dark = d
+        self._apply_style()
+
+    def set_content_getter(self, getter: Callable[[str], str]) -> None:
+        self._content_getter = getter
+
+    def refresh_cards(self, notes: dict[str, dict[str, Any]]) -> None:
+        for ind in self._indicators:
+            ind.setParent(None)
+            ind.deleteLater()
+        self._indicators.clear()
+        self._indicator_map.clear()
+        while self.ind_layout.count():
+            self.ind_layout.takeAt(0)
+        self._notes_data = dict(notes)
+        sorted_n = sorted(
+            self._notes_data.values(),
+            key=lambda n: n.get("modified_at", ""),
+            reverse=True,
+        )
+        for nd in sorted_n:
+            ind = DockNoteIndicator(nd, self._content_getter, self.ind_container)
+            ind.sig_click.connect(self.sig_card_click.emit)
+            ind.sig_hover_enter.connect(self._show_popup)
+            ind.sig_hover_leave.connect(self._schedule_hide)
+            self.ind_layout.addWidget(ind)
+            self._indicators.append(ind)
+            self._indicator_map[nd["id"]] = ind
+        self.ind_layout.addStretch()
+
+    def update_note_card(self, nid: str, note_data: dict[str, Any]) -> None:
+        if not note_data.get("content", "").strip():
+            self.remove_note_card(nid)
+            return
+        self._notes_data[nid] = note_data
+        ind = self._indicator_map.get(nid)
+        if ind:
+            ind.update_note(note_data)
+            if self._popup and self._popup.note_id == nid:
+                self._popup.update_content(note_data)
+        else:
+            self.refresh_cards(self._notes_data)
+
+    def remove_note_card(self, nid: str) -> None:
+        self._notes_data.pop(nid, None)
+        ind = self._indicator_map.pop(nid, None)
+        if ind:
+            self.ind_layout.removeWidget(ind)
+            ind.setParent(None)
+            ind.deleteLater()
+            self._indicators = [i for i in self._indicators if i.note_id != nid]
+        if self._popup and self._popup.note_id == nid:
+            self._popup.close()
+            self._popup.deleteLater()
+            self._popup = None
+
+    def _show_popup(self, nid: str, gpos: QPoint) -> None:
+        self._popup_timer.stop()
+        if self._popup:
+            self._popup.close()
+            self._popup.deleteLater()
+            self._popup = None
+        nd = self._notes_data.get(nid)
+        if not nd:
+            return
+        live = dict(nd)
+        live["content"] = self._content_getter(nid)
+        self._popup = DockNotePopup(live, self._content_getter)
+        self._popup.clicked.connect(self.sig_card_click.emit)
+        pw, ph = self._popup.width(), self._popup.height()
+        g = self._screen_geo
+        if self._pos == "left":
+            x = g.left() + self.THICK + 4
+            y = gpos.y() - ph // 4
+        elif self._pos == "right":
+            x = g.right() - self.THICK - pw - 4
+            y = gpos.y() - ph // 4
+        else:
+            x = gpos.x() - pw // 4
+            y = g.top() + self.THICK + 4
+        if x + pw > g.right():
+            x = g.right() - pw
+        if y + ph > g.bottom():
+            y = g.bottom() - ph
+        if x < g.left():
+            x = g.left()
+        if y < g.top():
+            y = g.top()
+        self._popup.move(x, y)
+        self._popup.show()
+
+    def _schedule_hide(self, nid: str) -> None:
+        self._popup_timer.start()
+
+    def _hide_popup(self) -> None:
+        if self._popup:
+            if self._popup.geometry().contains(QCursor.pos()):
+                self._popup_timer.start()
+                return
+            self._popup.close()
+            self._popup.deleteLater()
+            self._popup = None
+
+    def _place_hidden(self) -> None:
+        g = self._screen_geo
+        t = self.THICK
+        if self._pos == "top":
+            self.resize(g.width(), t)
+            self.move(g.left(), g.top() - t)
+        elif self._pos == "left":
+            self.resize(t, g.height())
+            self.move(g.left() - t, g.top())
+        else:
+            self.resize(t, g.height())
+            self.move(g.right(), g.top())
+        self.show()
+        self._shown = False
+
+    def _vis_pos(self) -> QPoint:
+        g = self._screen_geo
+        if self._pos == "top":
+            return QPoint(g.left(), g.top())
+        if self._pos == "left":
+            return QPoint(g.left(), g.top())
+        return QPoint(g.right() - self.THICK, g.top())
+
+    def _hid_pos(self) -> QPoint:
+        g = self._screen_geo
+        t = self.THICK
+        if self._pos == "top":
+            return QPoint(g.left(), g.top() - t)
+        if self._pos == "left":
+            return QPoint(g.left() - t, g.top())
+        return QPoint(g.right(), g.top())
+
+    def _on_screen_changed(self, *_args) -> None:
+        if self._screen is not None:
+            self._screen_geo = self._screen.availableGeometry()
+        if self._shown:
+            self.move(self._vis_pos())
+        else:
+            self._place_hidden()
+
+    def _slide_in(self) -> None:
+        if self._shown:
+            return
+        self._shown = True
+        self._hide_tmr.stop()
+        self.show()
+        self.raise_()
+        self._anim_to(self._vis_pos())
+
+    def _slide_out(self) -> None:
+        if not self._shown:
+            return
+        if self.geometry().contains(QCursor.pos()):
+            self._hide_tmr.start()
+            return
+        if (
+            self._popup
+            and self._popup.isVisible()
+            and self._popup.geometry().contains(QCursor.pos())
+        ):
+            self._hide_tmr.start()
+            return
+        self._shown = False
+        self._anim_to(self._hid_pos())
+
+    def _anim_to(self, tgt: QPoint) -> None:
+        if self._anim and self._anim.state() == QPropertyAnimation.State.Running:
+            self._anim.stop()
+        self._anim = QPropertyAnimation(self, b"pos")
+        self._anim.setDuration(self.ANIM_MS)
+        self._anim.setStartValue(self.pos())
+        self._anim.setEndValue(tgt)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.start()
+
+    def _poll_mouse(self) -> None:
+        c = QCursor.pos()
+        g = self._screen_geo
+        z = self.TRIGGER
+        hit = False
+        if self._pos == "top":
+            hit = c.y() <= g.top() + z and g.left() <= c.x() <= g.right()
+        elif self._pos == "left":
+            hit = c.x() <= g.left() + z and g.top() <= c.y() <= g.bottom()
+        else:
+            hit = c.x() >= g.right() - z and g.top() <= c.y() <= g.bottom()
+        if hit and not self._shown:
+            self._slide_in()
+        elif self._shown and not self.geometry().contains(c):
+            popup_hover = (
+                self._popup
+                and self._popup.isVisible()
+                and self._popup.geometry().contains(c)
+            )
+            if not popup_hover and not self._hide_tmr.isActive():
+                self._hide_tmr.start()
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        if sys.platform == "darwin":
+            try:
+                from stickynotes.platform.macos.windows import configure_floating_window
+
+                configure_floating_window(self, on_top=True)
+            except Exception:
+                pass
+
+    def destroy_dock(self) -> None:
+        if self._screen is not None:
+            try:
+                self._screen.geometryChanged.disconnect(self._on_screen_changed)
+                self._screen.availableGeometryChanged.disconnect(
+                    self._on_screen_changed
+                )
+            except TypeError:
+                pass
+        self._poll.stop()
+        self._hide_tmr.stop()
+        self._popup_timer.stop()
+        if self._popup:
+            self._popup.close()
+            self._popup = None
+        self.close()
