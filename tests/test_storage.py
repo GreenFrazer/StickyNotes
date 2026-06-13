@@ -152,3 +152,109 @@ def test_normalize_note_defaults_private_false() -> None:
     note = normalize_note({"content": "x"}, "test-id")
     assert note is not None
     assert note["private"] is False
+
+
+def test_normalize_dock_shortcut_defaults_label_from_filename() -> None:
+    from stickynotes.models import normalize_dock_shortcut
+
+    shortcut = normalize_dock_shortcut(
+        {"path": "/tmp/Q1 Report.docx", "added_at": "2026-06-13T10:00:00"},
+        "shortcut-1",
+    )
+    assert shortcut is not None
+    assert shortcut["id"] == "shortcut-1"
+    assert shortcut["path"].endswith("Q1 Report.docx")
+    assert shortcut["label"] == "Q1 Report"
+    assert shortcut["added_at"] == "2026-06-13T10:00:00"
+
+
+def test_normalize_dock_shortcut_rejects_empty_path() -> None:
+    from stickynotes.models import normalize_dock_shortcut
+
+    assert normalize_dock_shortcut({"path": ""}, "shortcut-1") is None
+    assert normalize_dock_shortcut({"path": "   "}, "shortcut-1") is None
+
+
+def test_dock_file_badge_maps_extensions() -> None:
+    from stickynotes.models import dock_file_badge
+
+    assert dock_file_badge("/tmp/report.docx") == "DOC"
+    assert dock_file_badge("/tmp/data.xlsx") == "XLS"
+    assert dock_file_badge("/tmp/sheet.pdf") == "PDF"
+
+
+def test_load_persists_dock_shortcuts(temp_paths: FakePaths) -> None:
+    _write_json(
+        temp_paths.data_file,
+        {
+            "notes": {},
+            "settings": {"dock_position": "top", "dark_mode": False},
+            "dock_shortcuts": [
+                {
+                    "id": "s1",
+                    "path": "/tmp/report.docx",
+                    "label": "Q1 Report",
+                    "added_at": "2026-06-13T10:00:00",
+                }
+            ],
+        },
+    )
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    shortcuts = storage.get_dock_shortcuts()
+    assert len(shortcuts) == 1
+    assert shortcuts[0]["id"] == "s1"
+    assert shortcuts[0]["label"] == "Q1 Report"
+
+
+def test_load_skips_invalid_dock_shortcuts(temp_paths: FakePaths) -> None:
+    _write_json(
+        temp_paths.data_file,
+        {
+            "notes": {},
+            "settings": {"dock_position": "top", "dark_mode": False},
+            "dock_shortcuts": [
+                {
+                    "id": "good",
+                    "path": "/tmp/valid.pdf",
+                    "label": "Valid",
+                    "added_at": "2026-06-13T10:00:00",
+                },
+                {"id": "bad", "path": ""},
+                "not a dict",
+            ],
+        },
+    )
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    shortcuts = storage.get_dock_shortcuts()
+    assert len(shortcuts) == 1
+    assert shortcuts[0]["id"] == "good"
+
+
+def test_add_and_remove_dock_shortcut(temp_paths: FakePaths, tmp_path: Path) -> None:
+    doc = tmp_path / "budget.xlsx"
+    doc.write_text("data", encoding="utf-8")
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+
+    added = storage.add_dock_shortcut(str(doc))
+    assert added["path"] == str(doc.resolve())
+    assert added["label"] == "budget"
+    assert len(storage.get_dock_shortcuts()) == 1
+
+    loaded = json.loads(temp_paths.data_file.read_text(encoding="utf-8"))
+    assert len(loaded["dock_shortcuts"]) == 1
+    assert loaded["dock_shortcuts"][0]["label"] == "budget"
+
+    storage.remove_dock_shortcut(added["id"])
+    assert storage.get_dock_shortcuts() == []
+    reloaded = json.loads(temp_paths.data_file.read_text(encoding="utf-8"))
+    assert reloaded.get("dock_shortcuts", []) == []
+
+
+def test_save_includes_empty_dock_shortcuts_array(temp_paths: FakePaths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    note = StorageManager.default_note()
+    note["content"] = "Hello"
+    storage.set_note(note["id"], note)
+
+    data = json.loads(temp_paths.data_file.read_text(encoding="utf-8"))
+    assert data.get("dock_shortcuts") == []

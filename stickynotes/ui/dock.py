@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Callable
 from typing import Any
@@ -21,6 +22,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -28,6 +30,8 @@ from PyQt6.QtWidgets import (
 )
 
 from stickynotes.models import (
+    dock_file_badge,
+    dock_file_label,
     dock_indicator_text,
     dock_popup_preview_text,
     fmt_dt,
@@ -286,6 +290,146 @@ class DockNoteIndicator(QFrame):
         super().leaveEvent(e)
 
 
+class DockFilePopup(QWidget):
+    clicked = pyqtSignal(str)
+
+    def __init__(self, shortcut_data: dict[str, Any], parent=None) -> None:
+        super().__init__(parent)
+        self.shortcut_id = shortcut_data["id"]
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setFixedSize(260, 90)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._build(shortcut_data)
+
+    def _build(self, d: dict[str, Any]) -> None:
+        path = d.get("path", "")
+        label = dock_file_label(path, d.get("label"))
+        badge = dock_file_badge(path)
+        exists = bool(path) and os.path.isfile(path)
+        title = QLabel(f"{badge}  {label}")
+        title.setObjectName("fpTitle")
+        path_lbl = QLabel(path)
+        path_lbl.setObjectName("fpPath")
+        path_lbl.setWordWrap(True)
+        hint = QLabel("Click to open" if exists else "File missing")
+        hint.setObjectName("fpHint")
+        lo = QVBoxLayout(self)
+        lo.setContentsMargins(10, 8, 10, 8)
+        lo.setSpacing(2)
+        lo.addWidget(title)
+        lo.addWidget(path_lbl, 1)
+        lo.addWidget(hint)
+        border = "#c44" if not exists else "#888"
+        self.setStyleSheet(f"""
+            DockFilePopup {{background:#f8f8f8;border:1px solid {border};border-radius:8px;}}
+            #fpTitle {{font-size:12px;font-weight:bold;color:#222;background:transparent;}}
+            #fpPath {{font-size:10px;color:#555;background:transparent;}}
+            #fpHint {{font-size:9px;color:#777;font-style:italic;background:transparent;}}
+        """)
+
+    def mousePressEvent(self, e) -> None:
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.shortcut_id)
+        super().mousePressEvent(e)
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        if sys.platform == "darwin":
+            try:
+                from stickynotes.platform.macos.windows import configure_floating_window
+
+                configure_floating_window(self, on_top=True)
+            except Exception:
+                pass
+
+
+class DockFileIndicator(QFrame):
+    sig_click = pyqtSignal(str)
+    sig_hover_enter = pyqtSignal(str, QPoint)
+    sig_hover_leave = pyqtSignal(str)
+    sig_remove = pyqtSignal(str)
+
+    def __init__(self, shortcut_data: dict[str, Any], parent=None) -> None:
+        super().__init__(parent)
+        self.shortcut_id = shortcut_data["id"]
+        self._path = shortcut_data.get("path", "")
+        self.setFixedSize(44, 44)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        lo = QVBoxLayout(self)
+        lo.setContentsMargins(2, 2, 2, 2)
+        lo.setSpacing(0)
+        self.lbl_badge = QLabel(self)
+        self.lbl_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_badge.setStyleSheet(
+            "font-size:9px;font-weight:bold;color:#333;background:transparent;"
+        )
+        lo.addWidget(self.lbl_badge)
+        self.lbl_name = QLabel(self)
+        self.lbl_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_name.setStyleSheet(
+            "font-size:7px;color:#444;background:transparent;"
+        )
+        lo.addWidget(self.lbl_name)
+        self._apply_appearance(shortcut_data)
+
+    def _apply_appearance(self, shortcut_data: dict[str, Any]) -> None:
+        self._path = shortcut_data.get("path", "")
+        badge = dock_file_badge(self._path)
+        label = dock_file_label(self._path, shortcut_data.get("label"))
+        truncated = label[:6] + "\u2026" if len(label) > 7 else label
+        self.lbl_badge.setText(badge)
+        self.lbl_name.setText(truncated)
+        exists = bool(self._path) and os.path.isfile(self._path)
+        bg = "#e8e8e8" if exists else "#f0d0d0"
+        border = "#bbb" if exists else "#c66"
+        self.setStyleSheet(f"""
+            DockFileIndicator {{background:{bg};border:2px solid {border};border-radius:8px;}}
+            DockFileIndicator:hover {{border:2px solid #555;background:#ddd;}}
+        """)
+        tip = self._path if exists else f"{self._path}\n(File missing)"
+        self.setToolTip(tip)
+
+    def update_shortcut(self, shortcut_data: dict[str, Any]) -> None:
+        self._apply_appearance(shortcut_data)
+
+    def contextMenuEvent(self, e) -> None:
+        menu = QMenu(self)
+        menu.addAction("Open file location", lambda: self._open_location())
+        menu.addAction("Remove from dock", lambda: self.sig_remove.emit(self.shortcut_id))
+        menu.exec(e.globalPos())
+
+    def _open_location(self) -> None:
+        from pathlib import Path
+
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+
+        path = self._path
+        if not path:
+            return
+        target = path if os.path.isfile(path) else str(Path(path).parent)
+        if target and os.path.exists(target):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(target))
+
+    def mousePressEvent(self, e) -> None:
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.sig_click.emit(self.shortcut_id)
+        super().mousePressEvent(e)
+
+    def enterEvent(self, e) -> None:
+        self.sig_hover_enter.emit(self.shortcut_id, self.mapToGlobal(QPoint(0, 0)))
+        super().enterEvent(e)
+
+    def leaveEvent(self, e) -> None:
+        self.sig_hover_leave.emit(self.shortcut_id)
+        super().leaveEvent(e)
+
+
 class DockWidget(QWidget):
     sig_new_note = pyqtSignal()
     sig_show_all = pyqtSignal()
@@ -293,6 +437,9 @@ class DockWidget(QWidget):
     sig_settings = pyqtSignal()
     sig_exit = pyqtSignal()
     sig_card_click = pyqtSignal(str)
+    sig_shortcut_click = pyqtSignal(str)
+    sig_pin_file = pyqtSignal()
+    sig_remove_shortcut = pyqtSignal(str)
 
     THICK = 56
     TRIGGER = 4
@@ -330,12 +477,16 @@ class DockWidget(QWidget):
         self._btn_widgets: list[QWidget] = []
         self._indicators: list[DockNoteIndicator] = []
         self._indicator_map: dict[str, DockNoteIndicator] = {}
+        self._file_indicators: list[DockFileIndicator] = []
+        self._file_indicator_map: dict[str, DockFileIndicator] = {}
         self._popup: DockNotePopup | None = None
+        self._file_popup: DockFilePopup | None = None
         self._popup_timer = QTimer(self)
         self._popup_timer.setSingleShot(True)
         self._popup_timer.setInterval(300)
         self._popup_timer.timeout.connect(self._hide_popup)
         self._notes_data: dict[str, dict[str, Any]] = {}
+        self._shortcuts_data: list[dict[str, Any]] = []
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
@@ -393,6 +544,7 @@ class DockWidget(QWidget):
         outer.addWidget(self.scroll, 1)
         outer.addStretch()
         btn_groups = [
+            [("\U0001F4CE", "Pin file\u2026", self.sig_pin_file)],
             [("\u2795", "New Note", self.sig_new_note)],
             [
                 ("\U0001F4CB", "Show All", self.sig_show_all),
@@ -432,7 +584,16 @@ class DockWidget(QWidget):
     def set_content_getter(self, getter: Callable[[str], str]) -> None:
         self._content_getter = getter
 
-    def refresh_cards(self, notes: dict[str, dict[str, Any]]) -> None:
+    def refresh_cards(
+        self,
+        notes: dict[str, dict[str, Any]],
+        shortcuts: list[dict[str, Any]] | None = None,
+    ) -> None:
+        for ind in self._file_indicators:
+            ind.setParent(None)
+            ind.deleteLater()
+        self._file_indicators.clear()
+        self._file_indicator_map.clear()
         for ind in self._indicators:
             ind.setParent(None)
             ind.deleteLater()
@@ -441,6 +602,22 @@ class DockWidget(QWidget):
         while self.ind_layout.count():
             self.ind_layout.takeAt(0)
         self._notes_data = dict(notes)
+        self._shortcuts_data = list(shortcuts or [])
+        sorted_shortcuts = sorted(
+            self._shortcuts_data,
+            key=lambda s: s.get("added_at", ""),
+        )
+        for sd in sorted_shortcuts:
+            file_ind = DockFileIndicator(sd, self.ind_container)
+            file_ind.sig_click.connect(self.sig_shortcut_click.emit)
+            file_ind.sig_hover_enter.connect(self._show_file_popup)
+            file_ind.sig_hover_leave.connect(self._schedule_hide)
+            file_ind.sig_remove.connect(self.sig_remove_shortcut.emit)
+            self.ind_layout.addWidget(file_ind)
+            self._file_indicators.append(file_ind)
+            self._file_indicator_map[sd["id"]] = file_ind
+        if sorted_shortcuts:
+            self.ind_layout.addWidget(_make_sep(self._pos == "top"))
         sorted_n = sorted(
             self._notes_data.values(),
             key=lambda n: n.get("modified_at", ""),
@@ -468,7 +645,7 @@ class DockWidget(QWidget):
             if self._popup and self._popup.note_id == nid:
                 self._popup.update_content(note_data)
         else:
-            self.refresh_cards(self._notes_data)
+            self.refresh_cards(self._notes_data, self._shortcuts_data)
 
     def remove_note_card(self, nid: str) -> None:
         self._notes_data.pop(nid, None)
@@ -483,8 +660,49 @@ class DockWidget(QWidget):
             self._popup.deleteLater()
             self._popup = None
 
+    def _show_file_popup(self, sid: str, gpos: QPoint) -> None:
+        self._popup_timer.stop()
+        if self._file_popup:
+            self._file_popup.close()
+            self._file_popup.deleteLater()
+            self._file_popup = None
+        if self._popup:
+            self._popup.close()
+            self._popup.deleteLater()
+            self._popup = None
+        sd = next((s for s in self._shortcuts_data if s.get("id") == sid), None)
+        if not sd:
+            return
+        self._file_popup = DockFilePopup(dict(sd))
+        self._file_popup.clicked.connect(self.sig_shortcut_click.emit)
+        pw, ph = self._file_popup.width(), self._file_popup.height()
+        g = self._screen_geo
+        if self._pos == "left":
+            x = g.left() + self.THICK + 4
+            y = gpos.y() - ph // 4
+        elif self._pos == "right":
+            x = g.right() - self.THICK - pw - 4
+            y = gpos.y() - ph // 4
+        else:
+            x = gpos.x() - pw // 4
+            y = g.top() + self.THICK + 4
+        if x + pw > g.right():
+            x = g.right() - pw
+        if y + ph > g.bottom():
+            y = g.bottom() - ph
+        if x < g.left():
+            x = g.left()
+        if y < g.top():
+            y = g.top()
+        self._file_popup.move(x, y)
+        self._file_popup.show()
+
     def _show_popup(self, nid: str, gpos: QPoint) -> None:
         self._popup_timer.stop()
+        if self._file_popup:
+            self._file_popup.close()
+            self._file_popup.deleteLater()
+            self._file_popup = None
         if self._popup:
             self._popup.close()
             self._popup.deleteLater()
@@ -527,6 +745,13 @@ class DockWidget(QWidget):
             self._popup.close()
             self._popup.deleteLater()
             self._popup = None
+        if self._file_popup:
+            if self._file_popup.geometry().contains(QCursor.pos()):
+                self._popup_timer.start()
+                return
+            self._file_popup.close()
+            self._file_popup.deleteLater()
+            self._file_popup = None
 
     def _place_hidden(self) -> None:
         g = self._screen_geo
@@ -590,6 +815,13 @@ class DockWidget(QWidget):
         ):
             self._hide_tmr.start()
             return
+        if (
+            self._file_popup
+            and self._file_popup.isVisible()
+            and self._file_popup.geometry().contains(QCursor.pos())
+        ):
+            self._hide_tmr.start()
+            return
         self._shown = False
         self._anim_to(self._hid_pos())
 
@@ -621,6 +853,10 @@ class DockWidget(QWidget):
                 self._popup
                 and self._popup.isVisible()
                 and self._popup.geometry().contains(c)
+            ) or (
+                self._file_popup
+                and self._file_popup.isVisible()
+                and self._file_popup.geometry().contains(c)
             )
             if not popup_hover and not self._hide_tmr.isActive():
                 self._hide_tmr.start()
@@ -650,4 +886,7 @@ class DockWidget(QWidget):
         if self._popup:
             self._popup.close()
             self._popup = None
+        if self._file_popup:
+            self._file_popup.close()
+            self._file_popup = None
         self.close()

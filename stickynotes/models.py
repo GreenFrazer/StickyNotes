@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from stickynotes.theme import DEFAULT_NOTE_H, DEFAULT_NOTE_W, DATE_FMT
@@ -92,6 +94,71 @@ def dock_indicator_text(note: dict) -> str:
         return "\U0001F512"
     content = note.get("content", "").strip()
     return content[:4] or "\u2026"
+
+
+FILE_BADGE_MAP = {
+    ".doc": "DOC",
+    ".docx": "DOC",
+    ".xls": "XLS",
+    ".xlsx": "XLS",
+    ".pdf": "PDF",
+    ".txt": "TXT",
+    ".csv": "CSV",
+    ".ppt": "PPT",
+    ".pptx": "PPT",
+    ".rtf": "RTF",
+    ".md": "MD",
+}
+
+
+def dock_file_badge(path: str) -> str:
+    """Return a short file-type badge for dock indicators."""
+    ext = Path(path).suffix.lower()
+    return FILE_BADGE_MAP.get(ext, ext.lstrip(".").upper()[:3] or "FILE")
+
+
+def dock_file_label(path: str, label: str | None = None) -> str:
+    """Return display label; default to filename without extension."""
+    if label and label.strip():
+        return label.strip()
+    return Path(path).stem or Path(path).name or "File"
+
+
+def default_dock_shortcut(
+    shortcut_id: str | None = None,
+    path: str = "",
+    label: str | None = None,
+) -> dict[str, Any]:
+    now = datetime.now().isoformat(timespec="seconds")
+    resolved = os.path.abspath(path) if path else ""
+    return {
+        "id": shortcut_id or str(uuid.uuid4()),
+        "path": resolved,
+        "label": dock_file_label(resolved, label) if resolved else (label or ""),
+        "added_at": now,
+    }
+
+
+def normalize_dock_shortcut(
+    raw: dict[str, Any], shortcut_id: str
+) -> dict[str, Any] | None:
+    """Validate and normalize a dock shortcut dict; return None if unusable."""
+    if not isinstance(raw, dict):
+        return None
+    path = str(raw.get("path", "")).strip()
+    if not path:
+        return None
+    resolved = os.path.abspath(path)
+    label = dock_file_label(resolved, str(raw.get("label", "")))
+    added_at = raw.get("added_at")
+    if not added_at:
+        added_at = datetime.now().isoformat(timespec="seconds")
+    return {
+        "id": shortcut_id,
+        "path": resolved,
+        "label": label,
+        "added_at": str(added_at),
+    }
 
 
 def normalize_note(raw: dict[str, Any], note_id: str) -> dict[str, Any] | None:

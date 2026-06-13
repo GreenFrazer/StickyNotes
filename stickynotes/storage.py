@@ -12,7 +12,13 @@ from typing import Any, Callable
 
 from PyQt6.QtWidgets import QMessageBox
 
-from stickynotes.models import default_note, default_settings, normalize_note
+from stickynotes.models import (
+    default_dock_shortcut,
+    default_note,
+    default_settings,
+    normalize_dock_shortcut,
+    normalize_note,
+)
 from stickynotes.platform import get_paths
 from stickynotes.platform.base import PlatformPaths
 
@@ -30,7 +36,11 @@ class StorageManager:
         self.filepath = self._paths.data_file
         self.backup_path = self._paths.backup_file
         self._restore_prompt = restore_prompt
-        self._data: dict[str, Any] = {"notes": {}, "settings": default_settings()}
+        self._data: dict[str, Any] = {
+            "notes": {},
+            "settings": default_settings(),
+            "dock_shortcuts": [],
+        }
         self.load()
 
     @staticmethod
@@ -38,7 +48,11 @@ class StorageManager:
         return default_note(note_id)
 
     def _empty_data(self) -> dict[str, Any]:
-        return {"notes": {}, "settings": default_settings()}
+        return {
+            "notes": {},
+            "settings": default_settings(),
+            "dock_shortcuts": [],
+        }
 
     def _read_json_file(self, path: Path) -> dict[str, Any]:
         with open(path, "r", encoding="utf-8") as f:
@@ -68,6 +82,20 @@ class StorageManager:
                 data["notes"][nid] = normalized
             else:
                 logger.warning("Skipping invalid note entry: %s", nid)
+        shortcuts_in = raw.get("dock_shortcuts", [])
+        if not isinstance(shortcuts_in, list):
+            shortcuts_in = []
+        for entry in shortcuts_in:
+            if not isinstance(entry, dict):
+                continue
+            sid = entry.get("id")
+            if not isinstance(sid, str) or not sid:
+                continue
+            normalized = normalize_dock_shortcut(entry, sid)
+            if normalized:
+                data["dock_shortcuts"].append(normalized)
+            else:
+                logger.warning("Skipping invalid dock shortcut entry: %s", sid)
         return data
 
     def _try_restore_backup(self) -> bool:
@@ -156,4 +184,27 @@ class StorageManager:
 
     def set_settings(self, settings: dict[str, Any]) -> None:
         self._data["settings"] = settings
+        self.save()
+
+    def get_dock_shortcuts(self) -> list[dict[str, Any]]:
+        shortcuts = self._data.get("dock_shortcuts", [])
+        if not isinstance(shortcuts, list):
+            return []
+        return [dict(s) for s in shortcuts if isinstance(s, dict)]
+
+    def add_dock_shortcut(
+        self, path: str, label: str | None = None
+    ) -> dict[str, Any]:
+        shortcut = default_dock_shortcut(path=path, label=label)
+        self._data.setdefault("dock_shortcuts", []).append(shortcut)
+        self.save()
+        return dict(shortcut)
+
+    def remove_dock_shortcut(self, shortcut_id: str) -> None:
+        shortcuts = self._data.get("dock_shortcuts", [])
+        if not isinstance(shortcuts, list):
+            return
+        self._data["dock_shortcuts"] = [
+            s for s in shortcuts if isinstance(s, dict) and s.get("id") != shortcut_id
+        ]
         self.save()

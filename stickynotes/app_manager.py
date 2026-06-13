@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtGui import QBrush, QColor, QGuiApplication, QIcon, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import QApplication, QDialog, QMenu, QMessageBox, QSystemTrayIcon
+import os
+
+from PyQt6.QtCore import QTimer, QUrl
+from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QGuiApplication, QIcon, QPainter, QPen, QPixmap
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QMenu,
+    QMessageBox,
+    QSystemTrayIcon,
+)
 
 from stickynotes.models import auto_size, is_private, private_preview_text
 from stickynotes.platform import get_hotkey_service
@@ -36,6 +45,7 @@ class AppManager:
         self.tray = QSystemTrayIcon(self._ico(), self.app)
         tm = QMenu()
         tm.addAction("\u2795  New Note").triggered.connect(self.create_note)
+        tm.addAction("\U0001F4CE  Pin file to dock\u2026").triggered.connect(self.pin_file)
         tm.addAction("\U0001F4CB  Show All").triggered.connect(self.show_all_notes)
         tm.addAction("\U0001F648  Hide All").triggered.connect(self.hide_all_notes)
         tm.addSeparator()
@@ -106,11 +116,15 @@ class AppManager:
             dock.sig_settings.connect(self.open_settings)
             dock.sig_exit.connect(self.exit_app)
             dock.sig_card_click.connect(self._card_clicked)
+            dock.sig_shortcut_click.connect(self._shortcut_clicked)
+            dock.sig_pin_file.connect(self.pin_file)
+            dock.sig_remove_shortcut.connect(self.remove_shortcut)
             self.docks.append(dock)
         self._refresh_all_docks()
 
     def _refresh_all_docks(self) -> None:
         notes = self.storage.get_all_notes()
+        shortcuts = self.storage.get_dock_shortcuts()
         for nid in list(self._pending_note_updates):
             nd = notes.get(nid)
             for dock in self.docks:
@@ -127,7 +141,7 @@ class AppManager:
                 live = dict(nd)
                 live["content"] = self.get_display_content(nid)
                 enriched[nid] = live
-            dock.refresh_cards(enriched)
+            dock.refresh_cards(enriched, shortcuts)
 
     def _schedule_dock_refresh(self, nid: str | None = None) -> None:
         if nid:
@@ -233,6 +247,58 @@ class AppManager:
         n = self.notes.get(nid)
         if n:
             n.show_note()
+
+    def pin_file(self) -> None:
+        filters = (
+            "Documents (*.doc *.docx *.xls *.xlsx *.pdf *.txt *.csv);;"
+            "Word (*.doc *.docx);;"
+            "Excel (*.xls *.xlsx);;"
+            "PDF (*.pdf);;"
+            "All files (*)"
+        )
+        path, _ = QFileDialog.getOpenFileName(
+            None,
+            "Pin file to dock",
+            "",
+            filters,
+        )
+        if not path:
+            return
+        resolved = os.path.abspath(path)
+        if not os.path.isfile(resolved):
+            QMessageBox.warning(
+                None,
+                "Pin file",
+                "The selected file could not be found.",
+            )
+            return
+        self.storage.add_dock_shortcut(resolved)
+        self._refresh_all_docks()
+
+    def _shortcut_clicked(self, shortcut_id: str) -> None:
+        shortcuts = self.storage.get_dock_shortcuts()
+        shortcut = next((s for s in shortcuts if s.get("id") == shortcut_id), None)
+        if not shortcut:
+            return
+        path = shortcut.get("path", "")
+        if not path or not os.path.isfile(path):
+            label = shortcut.get("label", "File")
+            reply = QMessageBox.warning(
+                None,
+                "File missing",
+                f'"{label}" could not be found at:\n{path}\n\n'
+                "Remove this shortcut from the dock?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.remove_shortcut(shortcut_id)
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    def remove_shortcut(self, shortcut_id: str) -> None:
+        self.storage.remove_dock_shortcut(shortcut_id)
+        self._refresh_all_docks()
 
     def _on_changed(self, nid: str) -> None:
         self._tt()

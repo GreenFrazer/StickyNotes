@@ -10,6 +10,7 @@ Built with Python 3 and PyQt6.
 - 7 colour themes, opacity, always-on-top, compact mode, **private notes** (click-to-reveal masking)
 - Copy to clipboard from note window, dock indicators, and hover popups
 - Auto-hiding dock per monitor (top or side layout)
+- **Dock file shortcuts** — pin Word, Excel, PDF, and other documents; open with one click
 - Multi-monitor aware (dock recreated on screen add/remove)
 - System tray with note count and quick actions
 - Global shortcuts (platform-specific — see below)
@@ -29,6 +30,9 @@ Notes and settings are stored locally as JSON. A note is written to disk the fir
 **What is stored in `data.json`:**
 - `notes` — content, position, size, colour, opacity, always-on-top, compact mode, **private** flag, timestamps
 - `settings` — dock position (`top` / `side`), dark mode
+- `dock_shortcuts` — pinned document shortcuts (`id`, absolute `path`, display `label`, `added_at`)
+
+**Dock file shortcuts:** Pin Word, Excel, PDF, and other local files to the dock bar for one-click access. Use the 📎 **Pin file…** button on the dock or **Pin file to dock…** in the tray menu. Pinned files appear before note indicators; click to open in the default app. Right-click a file tile for **Remove from dock** or **Open file location**. If a file is moved or deleted, the tile shows a broken state and opening it offers to remove the shortcut.
 
 **Private notes:** Mark a note private to hide its content on screen and in dock previews until you click to reveal. Copy still copies the real text. This is shoulder-surfing protection only — note content is **not encrypted** on disk.
 
