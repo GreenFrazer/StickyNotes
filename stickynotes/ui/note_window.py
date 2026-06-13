@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QFontMetrics
 from PyQt6.QtWidgets import (
     QApplication,
@@ -28,7 +28,6 @@ from stickynotes.theme import (
     DEFAULT_NOTE_W,
     FONT_BODY,
     FONT_FINE,
-    INK,
     INK_MUTED,
     NOTE_COLOURS,
     SNAP_THRESHOLD,
@@ -66,6 +65,7 @@ class NoteWindow(QWidget):
         self._revealed = False
         self._drag_on = False
         self._drag_start = QPoint()
+        self._auto_resizing = False
         self._full_h = note_data.get("height", DEFAULT_NOTE_H)
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -89,7 +89,7 @@ class NoteWindow(QWidget):
         self.setGraphicsEffect(effect)
 
     def _reset_copy_icon(self) -> None:
-        set_button_icon(self.btn_copy, "copy", 16, light=self._dark)
+        set_button_icon(self.btn_copy, "copy", 16)
 
     def _build_ui(self) -> None:
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
@@ -107,7 +107,7 @@ class NoteWindow(QWidget):
         self.btn_copy.setToolTip("Copy to clipboard")
         self.btn_copy.clicked.connect(self._copy)
         self.btn_copy.setObjectName("titleBtn")
-        set_button_icon(self.btn_copy, "copy", 16, light=self._dark)
+        set_button_icon(self.btn_copy, "copy", 16)
 
         self.btn_lock = QPushButton(self.title_bar)
         self.btn_lock.setFixedSize(24, 24)
@@ -120,7 +120,7 @@ class NoteWindow(QWidget):
         self.btn_compact.setToolTip("Compact / Expand")
         self.btn_compact.clicked.connect(self._toggle_compact)
         self.btn_compact.setObjectName("titleBtn")
-        set_button_icon(self.btn_compact, "compact", 16, light=self._dark)
+        set_button_icon(self.btn_compact, "compact", 16)
 
         self.btn_pin = QPushButton(self.title_bar)
         self.btn_pin.setFixedSize(24, 24)
@@ -133,7 +133,7 @@ class NoteWindow(QWidget):
         self.btn_close.setToolTip("Hide note")
         self.btn_close.clicked.connect(self._hide_note)
         self.btn_close.setObjectName("titleBtn")
-        set_button_icon(self.btn_close, "close", 16, light=self._dark)
+        set_button_icon(self.btn_close, "close", 16)
 
         tb = QHBoxLayout(self.title_bar)
         tb.setContentsMargins(6, 2, 4, 2)
@@ -148,6 +148,7 @@ class NoteWindow(QWidget):
         self.editor.setPlaceholderText("Type your note here\u2026")
         self.editor.textChanged.connect(self._on_text)
         self.editor.setObjectName("noteEditor")
+        self.editor.installEventFilter(self)
         self._private_overlay = QWidget(self.editor)
         self._private_overlay.setObjectName("privateOverlay")
         self._private_overlay.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -203,21 +204,18 @@ class NoteWindow(QWidget):
 
     def set_dark_mode(self, dark: bool) -> None:
         self._dark = dark
-        self._apply_style()
-        self._refresh_title_icons()
-        self._update_overlay_style()
 
     def _refresh_title_icons(self) -> None:
-        set_button_icon(self.btn_copy, "copy", 16, light=self._dark)
+        set_button_icon(self.btn_copy, "copy", 16)
         lock_name = "lock" if is_private(self.note_data) else "unlock"
-        set_button_icon(self.btn_lock, lock_name, 16, light=self._dark)
+        set_button_icon(self.btn_lock, lock_name, 16)
         compact_name = "expand" if self.note_data.get("compact") else "compact"
-        set_button_icon(self.btn_compact, compact_name, 16, light=self._dark)
+        set_button_icon(self.btn_compact, compact_name, 16)
         pin_name = "pin" if self.note_data.get("always_on_top") else "unpin"
-        set_button_icon(self.btn_pin, pin_name, 16, light=self._dark)
-        set_button_icon(self.btn_close, "close", 16, light=self._dark)
+        set_button_icon(self.btn_pin, pin_name, 16)
+        set_button_icon(self.btn_close, "close", 16)
         for btn in (self.btn_copy, self.btn_lock, self.btn_compact, self.btn_pin, self.btn_close):
-            btn.setStyleSheet(title_button_stylesheet(dark_chrome=self._dark, size=24))
+            btn.setStyleSheet(title_button_stylesheet(size=24))
 
     def _real_content(self) -> str:
         return self.editor.toPlainText()
@@ -226,7 +224,7 @@ class NoteWindow(QWidget):
         cb = QApplication.clipboard()
         if cb:
             cb.setText(self._real_content())
-        set_button_icon(self.btn_copy, "check", 16, light=self._dark)
+        set_button_icon(self.btn_copy, "check", 16)
         self._copy_revert.start()
 
     def _reveal_private(self, _e=None) -> None:
@@ -257,7 +255,7 @@ class NoteWindow(QWidget):
             "Remove private" if is_private(self.note_data) else "Make private"
         )
         lock_name = "lock" if is_private(self.note_data) else "unlock"
-        set_button_icon(self.btn_lock, lock_name, 16, light=self._dark)
+        set_button_icon(self.btn_lock, lock_name, 16)
         if masked and not compact:
             self._private_overlay.show()
             self._private_overlay.raise_()
@@ -275,11 +273,6 @@ class NoteWindow(QWidget):
         self._private_overlay.setStyleSheet(
             f"#privateOverlay{{background:{bg};border:none;}}"
             f"#privateOverlayLabel{{font-size:{FONT_BODY}px;color:{INK_MUTED};background:transparent;padding:12px;}}"
-        )
-        tb = TITLE_BAR_COLOURS.get(cn, "#E8E85C")
-        self.editor.setStyleSheet(
-            f"#noteEditor{{background:{bg};border:none;font-size:{FONT_BODY}px;padding:8px 6px;color:{INK};"
-            f"selection-background-color:{tb};}}"
         )
 
     def _apply_data(self) -> None:
@@ -301,10 +294,12 @@ class NoteWindow(QWidget):
         cn = self.note_data.get("colour", "yellow")
         bg = NOTE_COLOURS.get(cn, "#FDFD96")
         tb = TITLE_BAR_COLOURS.get(cn, "#E8E85C")
-        self.setStyleSheet(note_window_stylesheet(bg, tb, dark_chrome=self._dark))
+        self.setStyleSheet(note_window_stylesheet(bg, tb))
+        self.editor.setStyleSheet("")
         for btn in (self.btn_copy, self.btn_lock, self.btn_compact, self.btn_pin, self.btn_close):
-            btn.setStyleSheet(title_button_stylesheet(dark_chrome=self._dark, size=24))
+            btn.setStyleSheet(title_button_stylesheet(size=24))
         self._refresh_title_icons()
+        self._update_overlay_style()
 
     def _refresh_dots(self) -> None:
         active = self.note_data.get("colour", "yellow")
@@ -419,7 +414,7 @@ class NoteWindow(QWidget):
         super().resizeEvent(e)
         if hasattr(self, "_private_overlay"):
             self._private_overlay.setGeometry(self.editor.rect())
-        if not self.note_data.get("compact", False):
+        if not self.note_data.get("compact", False) and not self._auto_resizing:
             self._full_h = self.height()
         self.note_data["user_resized"] = True
         self._save_timer.start()
@@ -430,6 +425,8 @@ class NoteWindow(QWidget):
 
     def _on_text(self) -> None:
         self._update_ts()
+        if self.editor.hasFocus() and not self.note_data.get("compact"):
+            self._expand_for_editing()
         self._save_timer.start()
 
     def _persist(self) -> None:
@@ -450,10 +447,51 @@ class NoteWindow(QWidget):
         self.note_data_changed.emit(self.note_id)
 
     def _change_colour(self, n: str) -> None:
+        if n not in NOTE_COLOURS:
+            return
         self.note_data["colour"] = n
         self._apply_style()
         self._refresh_dots()
         self._persist()
+
+    def _chrome_height(self) -> int:
+        return self.TB + self.colour_row.height() + self.meta_row.height()
+
+    def _expanded_height(self) -> int:
+        doc = self.editor.document()
+        doc.setTextWidth(max(1, self.editor.viewport().width()))
+        content_h = int(doc.size().height()) + 16
+        return self._chrome_height() + max(40, content_h)
+
+    def _expand_for_editing(self) -> None:
+        if self.note_data.get("compact"):
+            return
+        target = max(self._full_h, self._expanded_height())
+        if target <= self.height():
+            return
+        self._auto_resizing = True
+        try:
+            self.resize(self.width(), target)
+        finally:
+            self._auto_resizing = False
+
+    def _collapse_to_rest(self) -> None:
+        if self.note_data.get("compact"):
+            return
+        if self.height() == self._full_h:
+            return
+        self.resize(self.width(), self._full_h)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.editor and not self.note_data.get("compact"):
+            if event.type() == QEvent.Type.FocusIn:
+                self._expand_for_editing()
+            elif event.type() == QEvent.Type.FocusOut:
+                fw = QApplication.focusWidget()
+                if fw is not None and self.isAncestorOf(fw):
+                    return super().eventFilter(obj, event)
+                self._collapse_to_rest()
+        return super().eventFilter(obj, event)
 
     def _set_opacity(self, v: float) -> None:
         self.note_data["opacity"] = v
@@ -487,7 +525,7 @@ class NoteWindow(QWidget):
             self.colour_row.hide()
             self.meta_row.hide()
             self.setFixedHeight(self.TB + 4)
-            set_button_icon(self.btn_compact, "expand", 16, light=self._dark)
+            set_button_icon(self.btn_compact, "expand", 16)
             self.btn_compact.setToolTip("Expand")
         else:
             self.editor.show()
@@ -498,7 +536,7 @@ class NoteWindow(QWidget):
             self.resize(self.width(), self._full_h)
             self.setMinimumHeight(60)
             self.setMaximumHeight(16777215)
-            set_button_icon(self.btn_compact, "compact", 16, light=self._dark)
+            set_button_icon(self.btn_compact, "compact", 16)
             self.btn_compact.setToolTip("Compact")
 
     def _hide_note(self) -> None:

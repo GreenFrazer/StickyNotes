@@ -136,17 +136,10 @@ def colour_dot_frame_stylesheet(hex_colour: str, *, selected: bool) -> str:
     return f"background:{hex_colour};border:{border};border-radius:6px;"
 
 
-def note_window_stylesheet(
-    bg: str,
-    tb: str,
-    *,
-    dark_chrome: bool = False,
-) -> str:
-    title_bg = "#2d2d2d" if dark_chrome else tb
-    footer_bg = "#333333" if dark_chrome else bg
-    meta_fg = "#cccccc" if dark_chrome else INK_MUTED
+def note_window_stylesheet(bg: str, tb: str) -> str:
+    """Unified single-colour note chrome — header/body/footer share one palette."""
     title_top_r = RADIUS_MD
-    title_divider = "rgba(255,255,255,0.12)" if dark_chrome else "rgba(0,0,0,0.08)"
+    title_divider = "rgba(0,0,0,0.06)"
     return f"""
         NoteWindow {{
             background:{bg};
@@ -154,7 +147,7 @@ def note_window_stylesheet(
             border-radius:{RADIUS_MD}px;
         }}
         #titleBar {{
-            background:{title_bg};
+            background:{tb};
             border-top-left-radius:{title_top_r}px;
             border-top-right-radius:{title_top_r}px;
             border-bottom:1px solid {title_divider};
@@ -167,15 +160,15 @@ def note_window_stylesheet(
             color:{INK};
             selection-background-color:{tb};
         }}
-        #colourRow {{ background:{footer_bg}; }}
+        #colourRow {{ background:{bg}; }}
         #metaRow {{
-            background:{footer_bg};
+            background:{bg};
             border-bottom-left-radius:{RADIUS_MD}px;
             border-bottom-right-radius:{RADIUS_MD}px;
         }}
         #tsLabel {{
             {_font(FONT_FINE)}
-            color:{meta_fg};
+            color:{INK_MUTED};
             font-style:italic;
             padding:2px 8px 4px 8px;
             background:transparent;
@@ -195,12 +188,13 @@ def note_popup_stylesheet(bg: str, tb: str) -> str:
             background:{tb};
             border-top-left-radius:{RADIUS_MD}px;
             border-top-right-radius:{RADIUS_MD}px;
+            border-bottom:1px solid rgba(0,0,0,0.06);
         }}
         #pText {{
             {_font(FONT_CAPTION)}
             color:{INK};
             padding:8px 6px;
-            background:transparent;
+            background:{bg};
         }}
         #pColourRow {{ background:{bg}; }}
         #pTs {{
