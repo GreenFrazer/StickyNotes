@@ -56,7 +56,7 @@ from stickynotes.theme import (
     menu_stylesheet,
     note_popup_stylesheet,
 )
-from stickynotes.ui.icons import icon, set_button_icon
+from stickynotes.ui.icons import set_button_icon
 
 
 def _make_dock_btn(icon_name: str, label_text: str, signal) -> QWidget:
@@ -200,7 +200,7 @@ class DockNotePopup(QWidget):
         cb = QApplication.clipboard()
         if cb:
             cb.setText(self._content_getter(self.note_id))
-        self.btn_copy.setIcon(icon("check", 14))
+        set_button_icon(self.btn_copy, "check", 14)
         self._copy_revert.start()
 
     def mousePressEvent(self, e) -> None:
@@ -284,7 +284,7 @@ class DockNoteIndicator(QFrame):
         cb = QApplication.clipboard()
         if cb:
             cb.setText(self._content_getter(self.note_id))
-        self.btn_copy.setIcon(icon("check", 12))
+        set_button_icon(self.btn_copy, "check", 12, light=False)
         self._copy_revert.start()
 
     def mousePressEvent(self, e) -> None:

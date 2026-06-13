@@ -67,10 +67,12 @@ def dock_stylesheet(*, dark: bool = False, drag_over: bool = False) -> str:
             border-radius:{RADIUS_DOCK}px;
         }}
         #dockBtn {{
-            background:rgba(255,255,255,0.07);
+            background:rgba(255,255,255,0.10);
             border:none;
             border-radius:{RADIUS_SM}px;
             color:{ON_DARK};
+            font-size:20px;
+            padding:0;
         }}
         #dockBtn:hover {{ background:rgba(255,255,255,0.22); }}
         #dockBtn:pressed {{ background:rgba(255,255,255,0.35); }}
@@ -95,9 +97,11 @@ def dock_scroll_stylesheet() -> str:
 def title_button_stylesheet(*, dark_chrome: bool = False, size: int = 24) -> str:
     fg = ON_DARK if dark_chrome else INK_MUTED_80
     hover = "rgba(255,255,255,0.18)" if dark_chrome else "rgba(255,255,255,0.45)"
+    fs = max(12, int(size * 0.54))
     return (
         f"QPushButton{{background:transparent;border:none;border-radius:6px;color:{fg};"
-        f"padding:0;min-width:{size}px;max-width:{size}px;min-height:{size}px;max-height:{size}px;}}"
+        f"font-size:{fs}px;padding:0;min-width:{size}px;max-width:{size}px;"
+        f"min-height:{size}px;max-height:{size}px;}}"
         f"QPushButton:hover{{background:{hover};}}"
     )
 
@@ -105,10 +109,12 @@ def title_button_stylesheet(*, dark_chrome: bool = False, size: int = 24) -> str
 def copy_button_stylesheet(*, size: int = 22, dark_chrome: bool = False) -> str:
     fg = ON_DARK if dark_chrome else INK_MUTED_80
     hover = "rgba(255,255,255,0.18)" if dark_chrome else "rgba(255,255,255,0.8)"
-    base = "rgba(255,255,255,0.12)" if dark_chrome else "rgba(255,255,255,0.5)"
+    base = "rgba(255,255,255,0.12)" if dark_chrome else "rgba(255,255,255,0.65)"
+    fs = max(10, int(size * 0.55))
     return (
         f"QPushButton{{background:{base};border:none;border-radius:6px;color:{fg};"
-        f"min-width:{size}px;max-width:{size}px;min-height:{size}px;max-height:{size}px;}}"
+        f"font-size:{fs}px;min-width:{size}px;max-width:{size}px;"
+        f"min-height:{size}px;max-height:{size}px;}}"
         f"QPushButton:hover{{background:{hover};}}"
     )
 
@@ -137,9 +143,10 @@ def note_window_stylesheet(
     dark_chrome: bool = False,
 ) -> str:
     title_bg = "#2d2d2d" if dark_chrome else tb
-    meta_bg = "#333333" if dark_chrome else "transparent"
+    footer_bg = "#333333" if dark_chrome else bg
     meta_fg = "#cccccc" if dark_chrome else INK_MUTED
     title_top_r = RADIUS_MD
+    title_divider = "rgba(255,255,255,0.12)" if dark_chrome else "rgba(0,0,0,0.08)"
     return f"""
         NoteWindow {{
             background:{bg};
@@ -150,6 +157,7 @@ def note_window_stylesheet(
             background:{title_bg};
             border-top-left-radius:{title_top_r}px;
             border-top-right-radius:{title_top_r}px;
+            border-bottom:1px solid {title_divider};
         }}
         #noteEditor {{
             background:{bg};
@@ -159,8 +167,12 @@ def note_window_stylesheet(
             color:{INK};
             selection-background-color:{tb};
         }}
-        #colourRow {{ background:transparent; }}
-        #metaRow {{ background:{meta_bg}; border-bottom-left-radius:{RADIUS_MD}px; border-bottom-right-radius:{RADIUS_MD}px; }}
+        #colourRow {{ background:{footer_bg}; }}
+        #metaRow {{
+            background:{footer_bg};
+            border-bottom-left-radius:{RADIUS_MD}px;
+            border-bottom-right-radius:{RADIUS_MD}px;
+        }}
         #tsLabel {{
             {_font(FONT_FINE)}
             color:{meta_fg};
@@ -190,7 +202,7 @@ def note_popup_stylesheet(bg: str, tb: str) -> str:
             padding:8px 6px;
             background:transparent;
         }}
-        #pColourRow {{ background:transparent; }}
+        #pColourRow {{ background:{bg}; }}
         #pTs {{
             {_font(FONT_FINE)}
             color:{INK_MUTED};
@@ -257,13 +269,13 @@ def dock_note_indicator_stylesheet(
 
 def dock_file_indicator_stylesheet(*, exists: bool) -> str:
     if exists:
-        bg = "rgba(255,255,255,0.12)"
-        border = "rgba(255,255,255,0.18)"
-        hover_bg = "rgba(255,255,255,0.22)"
+        bg = "rgba(255,255,255,0.20)"
+        border = "rgba(255,255,255,0.28)"
+        hover_bg = "rgba(255,255,255,0.32)"
     else:
-        bg = "rgba(255,255,255,0.06)"
-        border = "rgba(255,255,255,0.10)"
-        hover_bg = "rgba(255,255,255,0.14)"
+        bg = "rgba(255,80,80,0.18)"
+        border = "rgba(255,120,120,0.35)"
+        hover_bg = "rgba(255,80,80,0.28)"
     return f"""
         DockFileIndicator {{
             background:{bg};

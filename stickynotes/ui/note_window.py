@@ -38,7 +38,7 @@ from stickynotes.theme import (
     note_window_stylesheet,
     title_button_stylesheet,
 )
-from stickynotes.ui.icons import icon, set_button_icon
+from stickynotes.ui.icons import set_button_icon
 
 if TYPE_CHECKING:
     from stickynotes.storage import StorageManager
@@ -83,9 +83,9 @@ class NoteWindow(QWidget):
 
     def _apply_shadow(self) -> None:
         effect = QGraphicsDropShadowEffect(self)
-        effect.setBlurRadius(12)
-        effect.setOffset(0, 3)
-        effect.setColor(QColor(0, 0, 0, 31))
+        effect.setBlurRadius(16)
+        effect.setOffset(0, 4)
+        effect.setColor(QColor(0, 0, 0, 48))
         self.setGraphicsEffect(effect)
 
     def _reset_copy_icon(self) -> None:
@@ -226,7 +226,7 @@ class NoteWindow(QWidget):
         cb = QApplication.clipboard()
         if cb:
             cb.setText(self._real_content())
-        self.btn_copy.setIcon(icon("check", 16, light=self._dark))
+        set_button_icon(self.btn_copy, "check", 16, light=self._dark)
         self._copy_revert.start()
 
     def _reveal_private(self, _e=None) -> None:
