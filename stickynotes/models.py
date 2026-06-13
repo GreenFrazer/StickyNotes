@@ -48,6 +48,7 @@ def default_note(note_id: str | None = None) -> dict[str, Any]:
         "always_on_top": False,
         "visible": True,
         "compact": False,
+        "private": False,
         "user_resized": False,
         "created_at": now,
         "modified_at": now,
@@ -69,8 +70,28 @@ NOTE_DEFAULTS = {
     "always_on_top": False,
     "visible": True,
     "compact": False,
+    "private": False,
     "user_resized": False,
 }
+
+
+def is_private(note: dict) -> bool:
+    return bool(note.get("private"))
+
+
+def private_preview_text() -> str:
+    return "Private note — click to reveal"
+
+
+def dock_popup_preview_text() -> str:
+    return "Private note — hover copy still works"
+
+
+def dock_indicator_text(note: dict) -> str:
+    if is_private(note):
+        return "\U0001F512"
+    content = note.get("content", "").strip()
+    return content[:4] or "\u2026"
 
 
 def normalize_note(raw: dict[str, Any], note_id: str) -> dict[str, Any] | None:
@@ -91,7 +112,7 @@ def normalize_note(raw: dict[str, Any], note_id: str) -> dict[str, Any] | None:
             note[key] = int(note.get(key, NOTE_DEFAULTS[key]))
         except (TypeError, ValueError):
             note[key] = NOTE_DEFAULTS[key]
-    for key in ("always_on_top", "visible", "compact", "user_resized"):
+    for key in ("always_on_top", "visible", "compact", "private", "user_resized"):
         note[key] = bool(note.get(key, NOTE_DEFAULTS[key]))
     note["content"] = str(note.get("content", ""))
     for ts in ("created_at", "modified_at"):

@@ -27,7 +27,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from stickynotes.models import fmt_dt
+from stickynotes.models import (
+    dock_indicator_text,
+    dock_popup_preview_text,
+    fmt_dt,
+    is_private,
+)
 from stickynotes.theme import NOTE_COLOURS, TITLE_BAR_COLOURS
 
 
@@ -115,7 +120,11 @@ class DockNotePopup(QWidget):
         )
         tl.addWidget(self.btn_copy)
         content = d.get("content", "")
-        self.preview = QLabel(content[:300] if content else "")
+        if is_private(d):
+            preview_text = dock_popup_preview_text()
+        else:
+            preview_text = content[:300] if content else ""
+        self.preview = QLabel(preview_text)
         self.preview.setWordWrap(True)
         self.preview.setObjectName("pText")
         self.preview.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -134,9 +143,11 @@ class DockNotePopup(QWidget):
         cl.addStretch()
         chars = len(content)
         mod = d.get("modified_at", "")
-        self.ts_label = QLabel(
-            f"{chars} chars  \u00B7  Modified: {fmt_dt(mod)}" if mod else ""
-        )
+        if is_private(d):
+            ts = f"Private  \u00B7  Modified: {fmt_dt(mod)}" if mod else "Private"
+        else:
+            ts = f"{chars} chars  \u00B7  Modified: {fmt_dt(mod)}" if mod else ""
+        self.ts_label = QLabel(ts)
         self.ts_label.setObjectName("pTs")
         lo = QVBoxLayout(self)
         lo.setContentsMargins(0, 0, 0, 4)
@@ -155,6 +166,13 @@ class DockNotePopup(QWidget):
 
     def update_content(self, note_data: dict[str, Any]) -> None:
         content = note_data.get("content", "")
+        if is_private(note_data):
+            self.preview.setText(dock_popup_preview_text())
+            mod = note_data.get("modified_at", "")
+            self.ts_label.setText(
+                f"Private  \u00B7  Modified: {fmt_dt(mod)}" if mod else "Private"
+            )
+            return
         self.preview.setText(content[:300] if content else "")
         mod = note_data.get("modified_at", "")
         chars = len(content)
@@ -239,7 +257,7 @@ class DockNoteIndicator(QFrame):
         cn = self._colour
         bg = NOTE_COLOURS.get(cn, "#FDFD96")
         tb = TITLE_BAR_COLOURS.get(cn, "#E8E85C")
-        txt = note_data.get("content", "").strip()[:4] or "\u2026"
+        txt = dock_indicator_text(note_data)
         self.lbl_preview.setText(txt)
         self.setStyleSheet(f"""
             DockNoteIndicator {{background:{bg};border:2px solid {tb};border-radius:8px;}}
@@ -444,7 +462,8 @@ class DockWidget(QWidget):
         self.ind_layout.addStretch()
 
     def update_note_card(self, nid: str, note_data: dict[str, Any]) -> None:
-        if not note_data.get("content", "").strip():
+        has_content = bool(note_data.get("content", "").strip())
+        if not has_content and not note_data.get("private"):
             self.remove_note_card(nid)
             return
         self._notes_data[nid] = note_data
@@ -478,9 +497,7 @@ class DockWidget(QWidget):
         nd = self._notes_data.get(nid)
         if not nd:
             return
-        live = dict(nd)
-        live["content"] = self._content_getter(nid)
-        self._popup = DockNotePopup(live, self._content_getter)
+        self._popup = DockNotePopup(dict(nd), self._content_getter)
         self._popup.clicked.connect(self.sig_card_click.emit)
         pw, ph = self._popup.width(), self._popup.height()
         g = self._screen_geo

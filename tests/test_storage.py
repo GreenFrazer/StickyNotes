@@ -130,3 +130,25 @@ def test_delete_note_removes_from_storage(temp_paths: FakePaths) -> None:
     storage.set_note(note["id"], note)
     storage.delete_note(note["id"])
     assert storage.get_all_notes() == {}
+
+
+def test_private_field_round_trips(temp_paths: FakePaths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    note = StorageManager.default_note()
+    note["content"] = "Secret text"
+    note["private"] = True
+    storage.set_note(note["id"], note)
+
+    loaded = StorageManager(temp_paths, restore_prompt=lambda: False)
+    notes = loaded.get_all_notes()
+    assert note["id"] in notes
+    assert notes[note["id"]]["private"] is True
+    assert notes[note["id"]]["content"] == "Secret text"
+
+
+def test_normalize_note_defaults_private_false() -> None:
+    from stickynotes.models import normalize_note
+
+    note = normalize_note({"content": "x"}, "test-id")
+    assert note is not None
+    assert note["private"] is False

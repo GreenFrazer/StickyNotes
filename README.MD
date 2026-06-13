@@ -7,7 +7,7 @@ Built with Python 3 and PyQt6.
 ## Key Features
 
 - Unlimited draggable, resizable, frameless sticky notes with auto-save (~500ms)
-- 7 colour themes, opacity, always-on-top, compact mode
+- 7 colour themes, opacity, always-on-top, compact mode, **private notes** (click-to-reveal masking)
 - Copy to clipboard from note window, dock indicators, and hover popups
 - Auto-hiding dock per monitor (top or side layout)
 - Multi-monitor aware (dock recreated on screen add/remove)
@@ -27,8 +27,10 @@ Notes and settings are stored locally as JSON. A note is written to disk the fir
 `/Users/<your-username>/Library/Application Support/StickyNotesApp/data.json`
 
 **What is stored in `data.json`:**
-- `notes` — content, position, size, colour, opacity, always-on-top, compact mode, timestamps
+- `notes` — content, position, size, colour, opacity, always-on-top, compact mode, **private** flag, timestamps
 - `settings` — dock position (`top` / `side`), dark mode
+
+**Private notes:** Mark a note private to hide its content on screen and in dock previews until you click to reveal. Copy still copies the real text. This is shoulder-surfing protection only — note content is **not encrypted** on disk.
 
 **When files are created:**
 - `data.json` — on first note save or first settings change

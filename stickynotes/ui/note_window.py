@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from stickynotes.models import fmt_dt
+from stickynotes.models import fmt_dt, is_private, private_preview_text
 from stickynotes.theme import (
     DEFAULT_NOTE_H,
     DEFAULT_NOTE_W,
@@ -46,6 +46,7 @@ class NoteWindow(QWidget):
         self.note_data = note_data
         self.storage = storage
         self.note_id = note_data["id"]
+        self._revealed = False
         self._drag_on = False
         self._drag_start = QPoint()
         self._full_h = note_data.get("height", DEFAULT_NOTE_H)
@@ -77,6 +78,11 @@ class NoteWindow(QWidget):
         self.btn_copy.setToolTip("Copy to clipboard")
         self.btn_copy.clicked.connect(self._copy)
         self.btn_copy.setObjectName("titleBtn")
+        self.btn_lock = QPushButton("\U0001F513", self.title_bar)
+        self.btn_lock.setFixedSize(24, 24)
+        self.btn_lock.setToolTip("Toggle private")
+        self.btn_lock.clicked.connect(self._toggle_private)
+        self.btn_lock.setObjectName("titleBtn")
         self.btn_compact = QPushButton("\u25AC", self.title_bar)
         self.btn_compact.setFixedSize(24, 24)
         self.btn_compact.setToolTip("Compact / Expand")
@@ -95,13 +101,26 @@ class NoteWindow(QWidget):
         tb = QHBoxLayout(self.title_bar)
         tb.setContentsMargins(6, 2, 4, 2)
         tb.addStretch()
-        for b in (self.btn_copy, self.btn_compact, self.btn_pin, self.btn_close):
+        for b in (self.btn_copy, self.btn_lock, self.btn_compact, self.btn_pin, self.btn_close):
             tb.addWidget(b)
         self.editor = QTextEdit(self)
         self.editor.setAcceptRichText(False)
         self.editor.setPlaceholderText("Type your note here\u2026")
         self.editor.textChanged.connect(self._on_text)
         self.editor.setObjectName("noteEditor")
+        self._private_overlay = QWidget(self.editor)
+        self._private_overlay.setObjectName("privateOverlay")
+        self._private_overlay.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._private_overlay.mousePressEvent = self._reveal_private  # type: ignore[method-assign]
+        ov_lo = QVBoxLayout(self._private_overlay)
+        ov_lo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._overlay_lbl = QLabel(
+            f"\U0001F512  {private_preview_text()}", self._private_overlay
+        )
+        self._overlay_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._overlay_lbl.setWordWrap(True)
+        self._overlay_lbl.setObjectName("privateOverlayLabel")
+        ov_lo.addWidget(self._overlay_lbl)
         self.colour_row = QWidget(self)
         self.colour_row.setObjectName("colourRow")
         self.colour_row.setFixedHeight(24)
@@ -138,12 +157,67 @@ class NoteWindow(QWidget):
         lo.addWidget(self.colour_row)
         lo.addLayout(bot)
 
+    def _real_content(self) -> str:
+        return self.editor.toPlainText()
+
     def _copy(self) -> None:
         cb = QApplication.clipboard()
         if cb:
-            cb.setText(self.editor.toPlainText())
+            cb.setText(self._real_content())
         self.btn_copy.setText("\u2713")
         self._copy_revert.start()
+
+    def _reveal_private(self, _e=None) -> None:
+        self._revealed = True
+        self._apply_private_state()
+        self.editor.setFocus()
+
+    def _hide_private_content(self) -> None:
+        self._revealed = False
+        self._apply_private_state()
+
+    def _set_private(self, on: bool) -> None:
+        if is_private(self.note_data) == on:
+            return
+        self.note_data["private"] = on
+        if on:
+            self._revealed = False
+        self._apply_private_state()
+        self._persist()
+
+    def _toggle_private(self) -> None:
+        self._set_private(not is_private(self.note_data))
+
+    def _apply_private_state(self) -> None:
+        masked = is_private(self.note_data) and not self._revealed
+        compact = self.note_data.get("compact", False)
+        self.btn_lock.setText("\U0001F512" if is_private(self.note_data) else "\U0001F513")
+        self.btn_lock.setToolTip(
+            "Remove private" if is_private(self.note_data) else "Make private"
+        )
+        if masked and not compact:
+            self._private_overlay.show()
+            self._private_overlay.raise_()
+            self.editor.setReadOnly(True)
+        else:
+            self._private_overlay.hide()
+            self.editor.setReadOnly(False)
+        self._update_ts()
+        self._update_overlay_style()
+        self.note_data_changed.emit(self.note_id)
+
+    def _update_overlay_style(self) -> None:
+        cn = self.note_data.get("colour", "yellow")
+        bg = NOTE_COLOURS.get(cn, "#FDFD96")
+        tb = TITLE_BAR_COLOURS.get(cn, "#E8E85C")
+        self._private_overlay.setStyleSheet(
+            f"#privateOverlay{{background:{bg};border:none;}}"
+            f"#privateOverlayLabel{{font-size:13px;color:#555;background:transparent;padding:12px;}}"
+        )
+        self.editor.setStyleSheet(
+            f"#noteEditor{{background:{bg};border:none;font-size:13px;padding:6px;color:#222;"
+            f"selection-background-color:{tb};}}"
+        )
 
     def _apply_data(self) -> None:
         d = self.note_data
@@ -154,6 +228,9 @@ class NoteWindow(QWidget):
         self.setWindowOpacity(d.get("opacity", 1.0))
         if d.get("compact", False):
             self._set_compact(True)
+        if is_private(d):
+            self._revealed = False
+        self._apply_private_state()
         if d.get("visible", True):
             self.show()
 
@@ -191,6 +268,11 @@ class NoteWindow(QWidget):
 
     def _update_ts(self) -> None:
         mod = self.note_data.get("modified_at", "")
+        if is_private(self.note_data) and not self._revealed:
+            self.lbl_ts.setText(
+                f"Private  \u00B7  Modified: {fmt_dt(mod)}" if mod else "Private"
+            )
+            return
         c = len(self.editor.toPlainText())
         self.lbl_ts.setText(
             f"{c} chars  \u00B7  Modified: {fmt_dt(mod)}" if mod else f"{c} chars"
@@ -211,6 +293,15 @@ class NoteWindow(QWidget):
             lambda: self.request_duplicate.emit(self.note_id)
         )
         m.addAction("\U0001F4CB  Copy to Clipboard").triggered.connect(self._copy)
+        m.addSeparator()
+        priv = m.addAction("\U0001F512  Make Private")
+        priv.setCheckable(True)
+        priv.setChecked(is_private(self.note_data))
+        priv.triggered.connect(self._set_private)
+        if is_private(self.note_data) and self._revealed:
+            m.addAction("\U0001F648  Hide content").triggered.connect(
+                self._hide_private_content
+            )
         m.addSeparator()
         cm = m.addMenu("\U0001F3A8  Change Colour")
         for name in NOTE_COLOURS:
@@ -284,6 +375,8 @@ class NoteWindow(QWidget):
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
+        if hasattr(self, "_private_overlay"):
+            self._private_overlay.setGeometry(self.editor.rect())
         if not self.note_data.get("compact", False):
             self._full_h = self.height()
         self.note_data["user_resized"] = True
@@ -341,6 +434,7 @@ class NoteWindow(QWidget):
         c = not self.note_data.get("compact", False)
         self._set_compact(c)
         self.note_data["compact"] = c
+        self._apply_private_state()
         self._persist()
 
     def _set_compact(self, c: bool) -> None:

@@ -6,7 +6,7 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QBrush, QColor, QGuiApplication, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QApplication, QDialog, QMenu, QMessageBox, QSystemTrayIcon
 
-from stickynotes.models import auto_size
+from stickynotes.models import auto_size, is_private, private_preview_text
 from stickynotes.platform import get_hotkey_service
 from stickynotes.storage import StorageManager
 from stickynotes.theme import DEFAULT_NOTE_H, DEFAULT_NOTE_W
@@ -71,6 +71,12 @@ class AppManager:
         nd = self.storage.get_all_notes().get(nid)
         return nd.get("content", "") if nd else ""
 
+    def get_display_content(self, nid: str) -> str:
+        n = self.notes.get(nid)
+        if n and is_private(n.note_data) and not n._revealed:
+            return private_preview_text()
+        return self.get_live_content(nid)
+
     def _create_docks(self) -> None:
         for dock in self.docks:
             dock.destroy_dock()
@@ -110,7 +116,7 @@ class AppManager:
             for dock in self.docks:
                 if nd:
                     live = dict(nd)
-                    live["content"] = self.get_live_content(nid)
+                    live["content"] = self.get_display_content(nid)
                     dock.update_note_card(nid, live)
                 else:
                     dock.remove_note_card(nid)
@@ -119,7 +125,7 @@ class AppManager:
             enriched = {}
             for nid, nd in notes.items():
                 live = dict(nd)
-                live["content"] = self.get_live_content(nid)
+                live["content"] = self.get_display_content(nid)
                 enriched[nid] = live
             dock.refresh_cards(enriched)
 
@@ -129,7 +135,7 @@ class AppManager:
             note = self.notes.get(nid)
             if note:
                 nd = dict(self.storage.get_all_notes().get(nid, note.note_data))
-                nd["content"] = note.editor.toPlainText()
+                nd["content"] = self.get_display_content(nid)
                 for dock in self.docks:
                     dock.update_note_card(nid, nd)
         self._dock_refresh_timer.start()
@@ -198,9 +204,10 @@ class AppManager:
         if not src:
             return
         nd = StorageManager.default_note()
-        content = src.editor.toPlainText()
+        content = self.get_live_content(nid)
         nd["content"] = content
         nd["colour"] = src.note_data.get("colour", "yellow")
+        nd["private"] = src.note_data.get("private", False)
         nd["x"] = src.x() + 30
         nd["y"] = src.y() + 30
         w, h = auto_size(content)
