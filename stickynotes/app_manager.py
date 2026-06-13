@@ -15,7 +15,13 @@ from PyQt6.QtWidgets import (
     QSystemTrayIcon,
 )
 
-from stickynotes.models import auto_size, is_private, private_preview_text
+from stickynotes.models import (
+    auto_size,
+    dock_pin_dialog_filters,
+    is_dock_pinnable_file,
+    is_private,
+    private_preview_text,
+)
 from stickynotes.platform import get_hotkey_service
 from stickynotes.storage import StorageManager
 from stickynotes.theme import DEFAULT_NOTE_H, DEFAULT_NOTE_W
@@ -118,6 +124,7 @@ class AppManager:
             dock.sig_card_click.connect(self._card_clicked)
             dock.sig_shortcut_click.connect(self._shortcut_clicked)
             dock.sig_pin_file.connect(self.pin_file)
+            dock.sig_files_dropped.connect(self.pin_dropped_files)
             dock.sig_remove_shortcut.connect(self.remove_shortcut)
             self.docks.append(dock)
         self._refresh_all_docks()
@@ -248,19 +255,43 @@ class AppManager:
         if n:
             n.show_note()
 
-    def pin_file(self) -> None:
-        filters = (
-            "Documents (*.doc *.docx *.xls *.xlsx *.pdf *.txt *.csv);;"
-            "Word (*.doc *.docx);;"
-            "Excel (*.xls *.xlsx);;"
-            "PDF (*.pdf);;"
-            "All files (*)"
+    @staticmethod
+    def filter_new_dock_paths(
+        paths: list[str], existing_shortcuts: list[dict]
+    ) -> list[str]:
+        """Return absolute paths to pin, skipping missing files and duplicates."""
+        seen = {
+            os.path.normcase(os.path.abspath(str(s.get("path", ""))))
+            for s in existing_shortcuts
+            if s.get("path")
+        }
+        added: list[str] = []
+        for path in paths:
+            if not is_dock_pinnable_file(path):
+                continue
+            resolved = os.path.abspath(path)
+            key = os.path.normcase(resolved)
+            if key in seen:
+                continue
+            seen.add(key)
+            added.append(resolved)
+        return added
+
+    def _pin_paths(self, paths: list[str]) -> None:
+        new_paths = self.filter_new_dock_paths(
+            paths, self.storage.get_dock_shortcuts()
         )
+        for path in new_paths:
+            self.storage.add_dock_shortcut(path)
+        if new_paths:
+            self._refresh_all_docks()
+
+    def pin_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             None,
             "Pin file to dock",
             "",
-            filters,
+            dock_pin_dialog_filters(),
         )
         if not path:
             return
@@ -272,8 +303,10 @@ class AppManager:
                 "The selected file could not be found.",
             )
             return
-        self.storage.add_dock_shortcut(resolved)
-        self._refresh_all_docks()
+        self._pin_paths([resolved])
+
+    def pin_dropped_files(self, paths: list[str]) -> None:
+        self._pin_paths(paths)
 
     def _shortcut_clicked(self, shortcut_id: str) -> None:
         shortcuts = self.storage.get_dock_shortcuts()

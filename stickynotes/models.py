@@ -96,6 +96,10 @@ def dock_indicator_text(note: dict) -> str:
     return content[:4] or "\u2026"
 
 
+DOCK_PIN_EXTENSIONS = frozenset(
+    {".doc", ".docx", ".xls", ".xlsx", ".pdf", ".txt", ".csv"}
+)
+
 FILE_BADGE_MAP = {
     ".doc": "DOC",
     ".docx": "DOC",
@@ -109,6 +113,40 @@ FILE_BADGE_MAP = {
     ".rtf": "RTF",
     ".md": "MD",
 }
+
+
+def dock_pin_dialog_filters() -> str:
+    """QFileDialog filter string for pinning files to the dock."""
+    doc_exts = " ".join(f"*{ext}" for ext in sorted(DOCK_PIN_EXTENSIONS))
+    return (
+        f"Documents ({doc_exts});;"
+        "Word (*.doc *.docx);;"
+        "Excel (*.xls *.xlsx);;"
+        "PDF (*.pdf);;"
+        "All files (*)"
+    )
+
+
+def is_dock_pinnable_file(path: str) -> bool:
+    """Return True if path is a local file that may be pinned (matches pin dialog)."""
+    if not path or not path.strip():
+        return False
+    return os.path.isfile(os.path.abspath(path))
+
+
+def local_paths_from_mime_urls(urls: list) -> list[str]:
+    """Extract absolute local file paths from QUrl list; skips non-files."""
+    paths: list[str] = []
+    for url in urls:
+        if not url.isLocalFile():
+            continue
+        local = url.toLocalFile()
+        if not local:
+            continue
+        resolved = os.path.abspath(local)
+        if os.path.isfile(resolved):
+            paths.append(resolved)
+    return paths
 
 
 def dock_file_badge(path: str) -> str:

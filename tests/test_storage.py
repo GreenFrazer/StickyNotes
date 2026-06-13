@@ -258,3 +258,43 @@ def test_save_includes_empty_dock_shortcuts_array(temp_paths: FakePaths) -> None
 
     data = json.loads(temp_paths.data_file.read_text(encoding="utf-8"))
     assert data.get("dock_shortcuts") == []
+
+
+def test_dock_pin_extensions_and_dialog_filter() -> None:
+    from stickynotes.models import DOCK_PIN_EXTENSIONS, dock_pin_dialog_filters
+
+    assert ".docx" in DOCK_PIN_EXTENSIONS
+    assert ".pdf" in DOCK_PIN_EXTENSIONS
+    assert ".csv" in DOCK_PIN_EXTENSIONS
+    filters = dock_pin_dialog_filters()
+    assert "*.docx" in filters
+    assert "All files (*)" in filters
+
+
+def test_is_dock_pinnable_file(tmp_path: Path) -> None:
+    from stickynotes.models import is_dock_pinnable_file
+
+    doc = tmp_path / "notes.txt"
+    doc.write_text("hello", encoding="utf-8")
+    assert is_dock_pinnable_file(str(doc)) is True
+    assert is_dock_pinnable_file(str(tmp_path / "missing.pdf")) is False
+    assert is_dock_pinnable_file("") is False
+
+
+def test_filter_new_dock_paths_skips_duplicates(
+    temp_paths: FakePaths, tmp_path: Path
+) -> None:
+    from stickynotes.app_manager import AppManager
+
+    doc_a = tmp_path / "a.pdf"
+    doc_b = tmp_path / "b.csv"
+    doc_a.write_text("a", encoding="utf-8")
+    doc_b.write_text("b", encoding="utf-8")
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    storage.add_dock_shortcut(str(doc_a))
+
+    new_paths = AppManager.filter_new_dock_paths(
+        [str(doc_a), str(doc_b), str(doc_a)],
+        storage.get_dock_shortcuts(),
+    )
+    assert new_paths == [str(doc_b.resolve())]

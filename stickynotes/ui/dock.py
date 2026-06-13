@@ -15,8 +15,9 @@ from PyQt6.QtCore import (
     Qt,
     QTimer,
     pyqtSignal,
+    QEvent,
 )
-from PyQt6.QtGui import QCursor
+from PyQt6.QtGui import QCursor, QDragEnterEvent, QDragMoveEvent, QDropEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -35,7 +36,9 @@ from stickynotes.models import (
     dock_indicator_text,
     dock_popup_preview_text,
     fmt_dt,
+    is_dock_pinnable_file,
     is_private,
+    local_paths_from_mime_urls,
 )
 from stickynotes.theme import NOTE_COLOURS, TITLE_BAR_COLOURS
 
@@ -439,6 +442,7 @@ class DockWidget(QWidget):
     sig_card_click = pyqtSignal(str)
     sig_shortcut_click = pyqtSignal(str)
     sig_pin_file = pyqtSignal()
+    sig_files_dropped = pyqtSignal(list)
     sig_remove_shortcut = pyqtSignal(str)
 
     THICK = 56
@@ -487,11 +491,13 @@ class DockWidget(QWidget):
         self._popup_timer.timeout.connect(self._hide_popup)
         self._notes_data: dict[str, dict[str, Any]] = {}
         self._shortcuts_data: list[dict[str, Any]] = []
+        self._drag_over = False
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
+        self.setAcceptDrops(True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self._build_ui()
         self._apply_style()
@@ -543,6 +549,9 @@ class DockWidget(QWidget):
         self.scroll.setWidget(self.ind_container)
         outer.addWidget(self.scroll, 1)
         outer.addStretch()
+        for w in (self.scroll, self.scroll.viewport(), self.ind_container):
+            w.setAcceptDrops(True)
+            w.installEventFilter(self)
         btn_groups = [
             [("\U0001F4CE", "Pin file\u2026", self.sig_pin_file)],
             [("\u2795", "New Note", self.sig_new_note)],
@@ -569,6 +578,8 @@ class DockWidget(QWidget):
 
     def _apply_style(self) -> None:
         bg = "rgba(25,25,25,235)" if self._dark else "rgba(40,40,40,225)"
+        if self._drag_over:
+            bg = "rgba(60,90,60,240)" if self._dark else "rgba(55,85,55,235)"
         self.setStyleSheet(f"""
             DockWidget{{background:{bg};border-radius:10px;}}
             #dockBtn{{background:rgba(255,255,255,0.07);border:none;border-radius:10px;font-size:19px;color:#eee;}}
@@ -576,6 +587,72 @@ class DockWidget(QWidget):
             #dockBtn:pressed{{background:rgba(255,255,255,0.35);}}
             #dockSep{{color:rgba(255,255,255,0.15);background:rgba(255,255,255,0.15);}}
         """)
+
+    def _mime_has_pinnable_files(self, mime) -> bool:
+        if not mime.hasUrls():
+            return False
+        for path in local_paths_from_mime_urls(mime.urls()):
+            if is_dock_pinnable_file(path):
+                return True
+        return False
+
+    def _paths_from_drop(self, mime) -> list[str]:
+        if not mime.hasUrls():
+            return []
+        return [
+            path
+            for path in local_paths_from_mime_urls(mime.urls())
+            if is_dock_pinnable_file(path)
+        ]
+
+    def _set_drag_over(self, active: bool) -> None:
+        if self._drag_over == active:
+            return
+        self._drag_over = active
+        self._apply_style()
+
+    def eventFilter(self, obj, event) -> bool:
+        t = event.type()
+        if t == QEvent.Type.DragEnter:
+            self.dragEnterEvent(event)
+            return True
+        if t == QEvent.Type.DragMove:
+            self.dragMoveEvent(event)
+            return True
+        if t == QEvent.Type.Drop:
+            self.dropEvent(event)
+            return True
+        if t == QEvent.Type.DragLeave:
+            self._set_drag_over(False)
+        return super().eventFilter(obj, event)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if self._mime_has_pinnable_files(event.mimeData()):
+            event.acceptProposedAction()
+            self._set_drag_over(True)
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event: QDragMoveEvent) -> None:
+        if self._mime_has_pinnable_files(event.mimeData()):
+            event.acceptProposedAction()
+            self._set_drag_over(True)
+        else:
+            event.ignore()
+            self._set_drag_over(False)
+
+    def dragLeaveEvent(self, event) -> None:
+        self._set_drag_over(False)
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        self._set_drag_over(False)
+        paths = self._paths_from_drop(event.mimeData())
+        if paths:
+            event.acceptProposedAction()
+            self.sig_files_dropped.emit(paths)
+        else:
+            event.ignore()
 
     def set_dark_mode(self, d: bool) -> None:
         self._dark = d
