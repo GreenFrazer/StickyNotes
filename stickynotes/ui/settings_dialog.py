@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from stickynotes.theme import dialog_stylesheet
+
 
 class SettingsDialog(QDialog):
     def __init__(self, cur: dict[str, Any], parent=None) -> None:
@@ -61,6 +63,7 @@ class SettingsDialog(QDialog):
         la.addWidget(g)
         self.cd = QCheckBox("Enable Dark Mode (dock && dialogs)")
         self.cd.setChecked(self.settings.get("dark_mode", False))
+        self.cd.stateChanged.connect(self._on_dark_changed)
         la.addWidget(self.cd)
         la.addWidget(QLabel(self._shortcut_text()))
         ab = QLabel("<small>Sticky Notes v3.5 \u2013 PyQt6</small>")
@@ -85,10 +88,8 @@ class SettingsDialog(QDialog):
         self.settings["dark_mode"] = self.cd.isChecked()
         self.accept()
 
+    def _on_dark_changed(self) -> None:
+        self.setStyleSheet(dialog_stylesheet(self.cd.isChecked()))
+
     def _style(self) -> None:
-        self.setStyleSheet("""
-            QDialog{background:#f5f5f5;} QGroupBox{font-weight:bold;padding-top:14px;}
-            QPushButton{background:#0078D4;color:white;border:none;border-radius:6px;padding:6px 18px;font-size:13px;}
-            QPushButton:hover{background:#005FA3;}
-            #cancelBtn{background:#ddd;color:#333;} #cancelBtn:hover{background:#ccc;}
-        """)
+        self.setStyleSheet(dialog_stylesheet(self.settings.get("dark_mode", False)))

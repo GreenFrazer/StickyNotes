@@ -38,10 +38,10 @@ from stickynotes.theme import NOTE_COLOURS, TITLE_BAR_COLOURS
 
 def _make_dock_btn(icon: str, label_text: str, signal) -> QWidget:
     w = QWidget()
-    w.setFixedWidth(56)
+    w.setFixedWidth(48)
     lo = QVBoxLayout(w)
     lo.setContentsMargins(0, 0, 0, 0)
-    lo.setSpacing(1)
+    lo.setSpacing(0)
     lo.setAlignment(Qt.AlignmentFlag.AlignCenter)
     btn = QPushButton(icon)
     btn.setToolTip(label_text)
@@ -50,10 +50,6 @@ def _make_dock_btn(icon: str, label_text: str, signal) -> QWidget:
     btn.clicked.connect(signal.emit)
     btn.setObjectName("dockBtn")
     lo.addWidget(btn, 0, Qt.AlignmentFlag.AlignCenter)
-    lbl = QLabel(label_text)
-    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    lbl.setObjectName("dockLabel")
-    lo.addWidget(lbl, 0, Qt.AlignmentFlag.AlignCenter)
     w.btn = btn  # type: ignore[attr-defined]
     return w
 
@@ -298,7 +294,7 @@ class DockWidget(QWidget):
     sig_exit = pyqtSignal()
     sig_card_click = pyqtSignal(str)
 
-    THICK = 72
+    THICK = 56
     TRIGGER = 4
     ANIM_MS = 200
     HIDE_MS = 600
@@ -426,7 +422,6 @@ class DockWidget(QWidget):
             #dockBtn{{background:rgba(255,255,255,0.07);border:none;border-radius:10px;font-size:19px;color:#eee;}}
             #dockBtn:hover{{background:rgba(255,255,255,0.22);}}
             #dockBtn:pressed{{background:rgba(255,255,255,0.35);}}
-            #dockLabel{{color:#aaa;font-size:9px;background:transparent;border:none;}}
             #dockSep{{color:rgba(255,255,255,0.15);background:rgba(255,255,255,0.15);}}
         """)
 

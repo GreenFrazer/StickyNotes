@@ -9,6 +9,7 @@ if sys.platform == "darwin":
     import AppKit  # noqa: F401
     import Cocoa  # noqa: F401
     import stickynotes.platform.macos.windows  # noqa: F401
+    import stickynotes.platform.macos.app  # noqa: F401
     import CoreFoundation  # noqa: F401
     import HIServices  # noqa: F401
     import PyObjCTools  # noqa: F401

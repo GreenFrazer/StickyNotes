@@ -36,6 +36,8 @@ OPTIONS = {
         "CFBundleShortVersionString": "3.5",
         "LSMinimumSystemVersion": "11.0",
         "NSHighResolutionCapable": True,
+        # Menu-bar accessory: no Dock icon (tray is the primary UI).
+        "LSUIElement": True,
     },
 }
 

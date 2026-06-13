@@ -29,6 +29,10 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("Sticky Notes")
     app.setQuitOnLastWindowClosed(False)
+    if sys.platform == "darwin":
+        from stickynotes.platform.macos.app import configure_menu_bar_app
+
+        configure_menu_bar_app()
     AppManager(app)
     ec = app.exec()
     lock.unlock()
