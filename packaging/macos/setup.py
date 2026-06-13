@@ -11,6 +11,7 @@ APP = ["main.py"]
 DATA_FILES = []
 OPTIONS = {
     "argv_emulation": False,
+    "iconfile": "packaging/macos/StickyNotes.icns",
     # pynput is imported lazily in hotkeys.start(), so list it explicitly for py2app.
     "packages": [
         "stickynotes",

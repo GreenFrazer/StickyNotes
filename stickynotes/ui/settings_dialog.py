@@ -61,7 +61,7 @@ class SettingsDialog(QDialog):
             self.settings.get("dock_position", "top"), self.rt
         ).setChecked(True)
         la.addWidget(g)
-        self.cd = QCheckBox("Enable Dark Mode (dock && dialogs)")
+        self.cd = QCheckBox("Enable Dark Mode (dock, dialogs && note chrome)")
         self.cd.setChecked(self.settings.get("dark_mode", False))
         self.cd.stateChanged.connect(self._on_dark_changed)
         la.addWidget(self.cd)
@@ -89,7 +89,7 @@ class SettingsDialog(QDialog):
         self.accept()
 
     def _on_dark_changed(self) -> None:
-        self.setStyleSheet(dialog_stylesheet(self.cd.isChecked()))
+        self.setStyleSheet(dialog_stylesheet(dark=self.cd.isChecked()))
 
     def _style(self) -> None:
-        self.setStyleSheet(dialog_stylesheet(self.settings.get("dark_mode", False)))
+        self.setStyleSheet(dialog_stylesheet(dark=self.settings.get("dark_mode", False)))

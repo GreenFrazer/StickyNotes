@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from PyQt6.QtCore import QTimer, QUrl
-from PyQt6.QtGui import QBrush, QColor, QDesktopServices, QGuiApplication, QIcon, QPainter, QPen, QPixmap
+from PyQt6.QtGui import QDesktopServices, QGuiApplication, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -163,18 +163,19 @@ class AppManager:
 
     @staticmethod
     def _ico() -> QIcon:
-        px = QPixmap(64, 64)
-        px.fill(QColor(0, 0, 0, 0))
-        p = QPainter(px)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(QBrush(QColor("#FDFD96")))
-        p.setPen(QPen(QColor("#D0D050"), 2))
-        p.drawRoundedRect(4, 4, 56, 56, 8, 8)
-        p.setPen(QPen(QColor("#999"), 2))
-        for y in (20, 32, 44):
-            p.drawLine(14, y, 50, y)
-        p.end()
-        return QIcon(px)
+        from pathlib import Path
+
+        from stickynotes.ui.icons import app_icon
+
+        root = Path(__file__).resolve().parent.parent
+        for candidate in (
+            root / "packaging" / "macos" / "StickyNotes.icns",
+            root / "packaging" / "windows" / "StickyNotes.ico",
+            root / "packaging" / "StickyNotes.png",
+        ):
+            if candidate.is_file():
+                return QIcon(str(candidate))
+        return app_icon()
 
     def _tt(self) -> None:
         c = len([n for n in self.notes.values() if n.editor.toPlainText().strip()])
@@ -204,7 +205,7 @@ class AppManager:
         self._refresh_all_docks()
 
     def _spawn(self, nd: dict) -> None:
-        n = NoteWindow(nd, self.storage)
+        n = NoteWindow(nd, self.storage, dark_mode=self._dark)
         n.request_new_note.connect(self.create_note)
         n.request_delete.connect(self.delete_note)
         n.request_duplicate.connect(self.duplicate_note)
@@ -343,7 +344,13 @@ class AppManager:
             ns = dlg.settings
             self.storage.set_settings(ns)
             self._dock_pos = ns["dock_position"]
-            self._dark = ns.get("dark_mode", False)
+            dark = ns.get("dark_mode", False)
+            if dark != self._dark:
+                self._dark = dark
+                for n in self.notes.values():
+                    n.set_dark_mode(dark)
+            else:
+                self._dark = dark
             self._create_docks()
 
     def exit_app(self) -> None:

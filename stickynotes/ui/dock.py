@@ -12,6 +12,7 @@ from PyQt6.QtCore import (
     QPropertyAnimation,
     QRect,
     QEasingCurve,
+    QSize,
     Qt,
     QTimer,
     pyqtSignal,
@@ -40,22 +41,38 @@ from stickynotes.models import (
     is_private,
     local_paths_from_mime_urls,
 )
-from stickynotes.theme import NOTE_COLOURS, TITLE_BAR_COLOURS
+from stickynotes.theme import (
+    NOTE_COLOURS,
+    TITLE_BAR_COLOURS,
+    colour_dot_frame_stylesheet,
+    copy_button_stylesheet,
+    dock_file_indicator_stylesheet,
+    dock_file_label_stylesheet,
+    dock_note_indicator_stylesheet,
+    dock_preview_label_stylesheet,
+    dock_scroll_stylesheet,
+    dock_stylesheet,
+    file_popup_stylesheet,
+    menu_stylesheet,
+    note_popup_stylesheet,
+)
+from stickynotes.ui.icons import icon, set_button_icon
 
 
-def _make_dock_btn(icon: str, label_text: str, signal) -> QWidget:
+def _make_dock_btn(icon_name: str, label_text: str, signal) -> QWidget:
     w = QWidget()
     w.setFixedWidth(48)
     lo = QVBoxLayout(w)
     lo.setContentsMargins(0, 0, 0, 0)
     lo.setSpacing(0)
     lo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    btn = QPushButton(icon)
+    btn = QPushButton()
     btn.setToolTip(label_text)
     btn.setFixedSize(44, 44)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
     btn.clicked.connect(signal.emit)
     btn.setObjectName("dockBtn")
+    set_button_icon(btn, icon_name, 20, light=True)
     lo.addWidget(btn, 0, Qt.AlignmentFlag.AlignCenter)
     w.btn = btn  # type: ignore[attr-defined]
     return w
@@ -109,17 +126,15 @@ class DockNotePopup(QWidget):
         tl = QHBoxLayout(title)
         tl.setContentsMargins(8, 2, 4, 2)
         tl.addStretch()
-        self.btn_copy = QPushButton("\U0001F4CB", title)
+        self.btn_copy = QPushButton(title)
         self.btn_copy.setFixedSize(22, 22)
         self.btn_copy.setToolTip("Copy to clipboard")
         self.btn_copy.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_copy.setStyleSheet(
-            "QPushButton{background:rgba(255,255,255,0.5);border:none;border-radius:4px;font-size:11px;color:#333;}"
-            "QPushButton:hover{background:rgba(255,255,255,0.8);}"
-        )
+        self.btn_copy.setObjectName("pTitleBtn")
+        set_button_icon(self.btn_copy, "copy", 14)
         self.btn_copy.clicked.connect(self._copy)
         self._copy_revert.timeout.connect(
-            lambda: self.btn_copy.setText("\U0001F4CB")
+            lambda: set_button_icon(self.btn_copy, "copy", 14)
         )
         tl.addWidget(self.btn_copy)
         content = d.get("content", "")
@@ -137,11 +152,14 @@ class DockNotePopup(QWidget):
         cl = QHBoxLayout(crow)
         cl.setContentsMargins(8, 2, 8, 2)
         cl.setSpacing(4)
-        for nm, hc in NOTE_COLOURS.items():
+        for nm in NOTE_COLOURS:
             dot = QFrame(crow)
             dot.setFixedSize(12, 12)
-            brd = "2px solid #333" if nm == cn else "1px solid #aaa"
-            dot.setStyleSheet(f"background:{hc};border:{brd};border-radius:6px;")
+            dot.setStyleSheet(
+                colour_dot_frame_stylesheet(
+                    NOTE_COLOURS[nm], selected=nm == cn
+                )
+            )
             cl.addWidget(dot)
         cl.addStretch()
         chars = len(content)
@@ -159,13 +177,8 @@ class DockNotePopup(QWidget):
         lo.addWidget(self.preview, 1)
         lo.addWidget(crow)
         lo.addWidget(self.ts_label)
-        self.setStyleSheet(f"""
-            DockNotePopup {{background:{bg};border:1px solid {tb};border-radius:8px;}}
-            #pTitleBar {{background:{tb};border-top-left-radius:8px;border-top-right-radius:8px;}}
-            #pText {{font-size:12px;color:#222;padding:6px;background:transparent;}}
-            #pColourRow {{background:transparent;}}
-            #pTs {{font-size:9px;color:#777;font-style:italic;padding:2px 8px;background:transparent;}}
-        """)
+        self.btn_copy.setStyleSheet(copy_button_stylesheet(size=22))
+        self.setStyleSheet(note_popup_stylesheet(bg, tb))
 
     def update_content(self, note_data: dict[str, Any]) -> None:
         content = note_data.get("content", "")
@@ -187,7 +200,7 @@ class DockNotePopup(QWidget):
         cb = QApplication.clipboard()
         if cb:
             cb.setText(self._content_getter(self.note_id))
-        self.btn_copy.setText("\u2713")
+        self.btn_copy.setIcon(icon("check", 14))
         self._copy_revert.start()
 
     def mousePressEvent(self, e) -> None:
@@ -230,28 +243,25 @@ class DockNoteIndicator(QFrame):
         top.setContentsMargins(0, 0, 0, 0)
         top.setSpacing(0)
         top.addStretch()
-        self.btn_copy = QPushButton("\U0001F4CB", self)
+        self.btn_copy = QPushButton(self)
         self.btn_copy.setFixedSize(18, 18)
         self.btn_copy.setToolTip("Copy")
         self.btn_copy.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_copy.setStyleSheet(
-            "QPushButton{background:rgba(255,255,255,0.5);border:none;border-radius:4px;font-size:10px;color:#444;}"
-            "QPushButton:hover{background:rgba(255,255,255,0.85);}"
-        )
+        self.btn_copy.setObjectName("dockIndCopy")
+        set_button_icon(self.btn_copy, "copy", 12, light=False)
+        self.btn_copy.setStyleSheet(copy_button_stylesheet(size=18))
         self.btn_copy.clicked.connect(self._do_copy)
         self._copy_revert = QTimer(self)
         self._copy_revert.setSingleShot(True)
         self._copy_revert.setInterval(1000)
         self._copy_revert.timeout.connect(
-            lambda: self.btn_copy.setText("\U0001F4CB")
+            lambda: set_button_icon(self.btn_copy, "copy", 12, light=False)
         )
         top.addWidget(self.btn_copy)
         lo.addLayout(top)
         self.lbl_preview = QLabel(self)
         self.lbl_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_preview.setStyleSheet(
-            "font-size:9px;color:#444;background:transparent;"
-        )
+        self.lbl_preview.setStyleSheet(dock_preview_label_stylesheet())
         lo.addWidget(self.lbl_preview)
         self._apply_appearance(note_data)
 
@@ -262,10 +272,10 @@ class DockNoteIndicator(QFrame):
         tb = TITLE_BAR_COLOURS.get(cn, "#E8E85C")
         txt = dock_indicator_text(note_data)
         self.lbl_preview.setText(txt)
-        self.setStyleSheet(f"""
-            DockNoteIndicator {{background:{bg};border:2px solid {tb};border-radius:8px;}}
-            DockNoteIndicator:hover {{border:2px solid #555;background:{tb};}}
-        """)
+        visible = note_data.get("visible", True)
+        self.setStyleSheet(
+            dock_note_indicator_stylesheet(bg, tb, visible=visible)
+        )
 
     def update_note(self, note_data: dict[str, Any]) -> None:
         self._apply_appearance(note_data)
@@ -274,7 +284,7 @@ class DockNoteIndicator(QFrame):
         cb = QApplication.clipboard()
         if cb:
             cb.setText(self._content_getter(self.note_id))
-        self.btn_copy.setText("\u2713")
+        self.btn_copy.setIcon(icon("check", 12))
         self._copy_revert.start()
 
     def mousePressEvent(self, e) -> None:
@@ -327,13 +337,7 @@ class DockFilePopup(QWidget):
         lo.addWidget(title)
         lo.addWidget(path_lbl, 1)
         lo.addWidget(hint)
-        border = "#c44" if not exists else "#888"
-        self.setStyleSheet(f"""
-            DockFilePopup {{background:#f8f8f8;border:1px solid {border};border-radius:8px;}}
-            #fpTitle {{font-size:12px;font-weight:bold;color:#222;background:transparent;}}
-            #fpPath {{font-size:10px;color:#555;background:transparent;}}
-            #fpHint {{font-size:9px;color:#777;font-style:italic;background:transparent;}}
-        """)
+        self.setStyleSheet(file_popup_stylesheet(missing=not exists))
 
     def mousePressEvent(self, e) -> None:
         if e.button() == Qt.MouseButton.LeftButton:
@@ -367,16 +371,12 @@ class DockFileIndicator(QFrame):
         lo.setContentsMargins(2, 2, 2, 2)
         lo.setSpacing(0)
         self.lbl_badge = QLabel(self)
+        self.lbl_badge.setObjectName("fileBadge")
         self.lbl_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_badge.setStyleSheet(
-            "font-size:9px;font-weight:bold;color:#333;background:transparent;"
-        )
         lo.addWidget(self.lbl_badge)
         self.lbl_name = QLabel(self)
+        self.lbl_name.setObjectName("fileName")
         self.lbl_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_name.setStyleSheet(
-            "font-size:7px;color:#444;background:transparent;"
-        )
         lo.addWidget(self.lbl_name)
         self._apply_appearance(shortcut_data)
 
@@ -387,13 +387,10 @@ class DockFileIndicator(QFrame):
         truncated = label[:6] + "\u2026" if len(label) > 7 else label
         self.lbl_badge.setText(badge)
         self.lbl_name.setText(truncated)
+        self.lbl_badge.setStyleSheet(dock_file_label_stylesheet(badge=True))
+        self.lbl_name.setStyleSheet(dock_file_label_stylesheet(badge=False))
         exists = bool(self._path) and os.path.isfile(self._path)
-        bg = "#e8e8e8" if exists else "#f0d0d0"
-        border = "#bbb" if exists else "#c66"
-        self.setStyleSheet(f"""
-            DockFileIndicator {{background:{bg};border:2px solid {border};border-radius:8px;}}
-            DockFileIndicator:hover {{border:2px solid #555;background:#ddd;}}
-        """)
+        self.setStyleSheet(dock_file_indicator_stylesheet(exists=exists))
         tip = self._path if exists else f"{self._path}\n(File missing)"
         self.setToolTip(tip)
 
@@ -402,6 +399,7 @@ class DockFileIndicator(QFrame):
 
     def contextMenuEvent(self, e) -> None:
         menu = QMenu(self)
+        menu.setStyleSheet(menu_stylesheet(dark=True))
         menu.addAction("Open file location", lambda: self._open_location())
         menu.addAction("Remove from dock", lambda: self.sig_remove.emit(self.shortcut_id))
         menu.exec(e.globalPos())
@@ -450,17 +448,7 @@ class DockWidget(QWidget):
     ANIM_MS = 200
     HIDE_MS = 600
 
-    _SCROLL_CSS = """
-        QScrollArea{background:transparent;border:none;}
-        QScrollBar:vertical{background:transparent;width:6px;margin:2px 0;}
-        QScrollBar::handle:vertical{background:rgba(255,255,255,0.2);border-radius:3px;min-height:20px;}
-        QScrollBar::handle:vertical:hover{background:rgba(255,255,255,0.35);}
-        QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}
-        QScrollBar:horizontal{background:transparent;height:6px;margin:0 2px;}
-        QScrollBar::handle:horizontal{background:rgba(255,255,255,0.2);border-radius:3px;min-width:20px;}
-        QScrollBar::handle:horizontal:hover{background:rgba(255,255,255,0.35);}
-        QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{width:0;}
-    """
+    _SCROLL_CSS = dock_scroll_stylesheet()
 
     def __init__(
         self,
@@ -521,7 +509,7 @@ class DockWidget(QWidget):
         outer.setSpacing(4)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
-        self.scroll.setStyleSheet(self._SCROLL_CSS)
+        self.scroll.setStyleSheet(dock_scroll_stylesheet())
         if horiz:
             self.scroll.setVerticalScrollBarPolicy(
                 Qt.ScrollBarPolicy.ScrollBarAlwaysOff
@@ -548,19 +536,20 @@ class DockWidget(QWidget):
         self.ind_layout.addStretch()
         self.scroll.setWidget(self.ind_container)
         outer.addWidget(self.scroll, 1)
-        outer.addStretch()
+        self._action_sep = _make_sep(horiz)
+        outer.addWidget(self._action_sep)
         for w in (self.scroll, self.scroll.viewport(), self.ind_container):
             w.setAcceptDrops(True)
             w.installEventFilter(self)
         btn_groups = [
-            [("\U0001F4CE", "Pin file\u2026", self.sig_pin_file)],
-            [("\u2795", "New Note", self.sig_new_note)],
+            [("pin_file", "Pin file\u2026", self.sig_pin_file)],
+            [("plus", "New Note", self.sig_new_note)],
             [
-                ("\U0001F4CB", "Show All", self.sig_show_all),
-                ("\U0001F648", "Hide All", self.sig_hide_all),
-                ("\u2699", "Settings", self.sig_settings),
+                ("show_all", "Show All", self.sig_show_all),
+                ("hide_all", "Hide All", self.sig_hide_all),
+                ("settings", "Settings", self.sig_settings),
             ],
-            [("\u274C", "Exit", self.sig_exit)],
+            [("exit", "Exit", self.sig_exit)],
         ]
         self._btn_widgets = []
         btn_lay = QHBoxLayout() if horiz else QVBoxLayout()
@@ -577,16 +566,9 @@ class DockWidget(QWidget):
         outer.addLayout(btn_lay)
 
     def _apply_style(self) -> None:
-        bg = "rgba(25,25,25,235)" if self._dark else "rgba(40,40,40,225)"
-        if self._drag_over:
-            bg = "rgba(60,90,60,240)" if self._dark else "rgba(55,85,55,235)"
-        self.setStyleSheet(f"""
-            DockWidget{{background:{bg};border-radius:10px;}}
-            #dockBtn{{background:rgba(255,255,255,0.07);border:none;border-radius:10px;font-size:19px;color:#eee;}}
-            #dockBtn:hover{{background:rgba(255,255,255,0.22);}}
-            #dockBtn:pressed{{background:rgba(255,255,255,0.35);}}
-            #dockSep{{color:rgba(255,255,255,0.15);background:rgba(255,255,255,0.15);}}
-        """)
+        self.setStyleSheet(
+            dock_stylesheet(dark=self._dark, drag_over=self._drag_over)
+        )
 
     def _mime_has_pinnable_files(self, mime) -> bool:
         if not mime.hasUrls():
