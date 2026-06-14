@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor, QFontMetrics
+from PyQt6.QtGui import QColor, QCursor, QFocusEvent, QFontMetrics
 from PyQt6.QtWidgets import (
     QApplication,
     QGraphicsDropShadowEffect,
@@ -577,7 +577,17 @@ class NoteWindow(QWidget):
                     self._editing = True
                     self._expand_for_editing()
             elif event.type() == QEvent.Type.FocusIn:
-                if not self._drag_on:
+                if (
+                    not self._drag_on
+                    and isinstance(event, QFocusEvent)
+                    and event.reason()
+                    in (
+                        Qt.FocusReason.MouseFocusReason,
+                        Qt.FocusReason.TabFocusReason,
+                        Qt.FocusReason.BacktabFocusReason,
+                        Qt.FocusReason.ShortcutFocusReason,
+                    )
+                ):
                     self._editing = True
                     QTimer.singleShot(0, self._expand_for_editing)
             elif event.type() == QEvent.Type.FocusOut:
