@@ -35,3 +35,6 @@ Thumbs.db
 
 # Local data (app runtime)
 *.lock
+
+# Local-only dev scripts and artifacts (not committed)
+.local/
