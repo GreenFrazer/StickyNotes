@@ -22,6 +22,12 @@ TITLE_BAR_COLOURS = {
 
 DEFAULT_NOTE_W = 240
 DEFAULT_NOTE_H = 180
+# #checklistWidget::item { min-height:24px; padding:2px 0; }
+CHECKLIST_ITEM_MIN_H = 28
+# #checklistWidget { padding:8px 6px; }
+CHECKLIST_WIDGET_PAD_V = 16
+# #addChecklistItemBtn { padding:2px 8px 8px 14px; } + FONT_CAPTION line height
+CHECKLIST_ADD_BTN_MIN_H = 27
 SNAP_THRESHOLD = 20
 DATE_FMT = "%d %b %Y, %H:%M"
 

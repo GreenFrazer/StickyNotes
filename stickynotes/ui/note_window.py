@@ -41,6 +41,9 @@ from stickynotes.models import (
 )
 from stickynotes.reminders import ReminderService
 from stickynotes.theme import (
+    CHECKLIST_ADD_BTN_MIN_H,
+    CHECKLIST_ITEM_MIN_H,
+    CHECKLIST_WIDGET_PAD_V,
     DEFAULT_NOTE_H,
     DEFAULT_NOTE_W,
     FONT_BODY,
@@ -305,7 +308,7 @@ class NoteWindow(QWidget):
 
         self.meta_row = QWidget(self)
         self.meta_row.setObjectName("metaRow")
-        self.meta_row.setFixedHeight(18)
+        self.meta_row.setFixedHeight(22)
         meta_lo = QHBoxLayout(self.meta_row)
         meta_lo.setContentsMargins(0, 0, 0, 0)
         self.lbl_ts = QLabel(self.meta_row)
@@ -461,34 +464,45 @@ class NoteWindow(QWidget):
         self._update_ts()
         self._save_timer.start()
 
+    def _checklist_row_height(self, row: int) -> int:
+        return max(
+            CHECKLIST_ITEM_MIN_H,
+            self.checklist_widget.sizeHintForRow(row),
+        )
+
     def _checklist_content_height(self) -> int:
         count = self.checklist_widget.count()
         if count == 0:
             return 40
-        row_h = sum(
-            self.checklist_widget.sizeHintForRow(i) for i in range(count)
-        )
+        row_h = sum(self._checklist_row_height(i) for i in range(count))
         row_h += self.checklist_widget.spacing() * max(0, count - 1)
-        return max(40, row_h + 16)
+        return max(40, row_h + CHECKLIST_WIDGET_PAD_V)
+
+    def _checklist_add_button_height(self) -> int:
+        btn = self.btn_add_checklist_item
+        return max(btn.sizeHint().height(), btn.height(), CHECKLIST_ADD_BTN_MIN_H)
+
+    def _checklist_body_height(self) -> int:
+        return self._checklist_content_height() + self._checklist_add_button_height()
 
     def _checklist_window_height(self) -> int:
-        add_h = self.btn_add_checklist_item.sizeHint().height()
-        content_h = self._checklist_content_height() + add_h + 4
-        return self._chrome_height() + max(40, content_h)
+        return self._chrome_height() + max(40, self._checklist_body_height())
 
     def _sync_checklist_height(self) -> None:
-        if not self.note_data.get("checklist") or not self.checklist_body.isVisible():
+        if not self.note_data.get("checklist") or self.note_data.get("compact"):
             return
         self.checklist_widget.setFixedHeight(self._checklist_content_height())
-        if self.note_data.get("compact"):
-            return
         target = max(self._full_h, self._checklist_window_height())
-        if target <= self.height():
-            return
         self._auto_resizing = True
         try:
-            self.resize(self.width(), target)
-            self._full_h = target
+            if target > self.height():
+                self.resize(self.width(), target)
+            # Layout can land a few pixels short of the calculated body height.
+            body_need = self._checklist_body_height()
+            body_have = self.height() - self._chrome_height()
+            if body_need > body_have:
+                self.resize(self.width(), self.height() + (body_need - body_have))
+            self._full_h = max(self._full_h, self.height())
         finally:
             self._auto_resizing = False
 
@@ -680,6 +694,8 @@ class NoteWindow(QWidget):
             self._apply_private_state()
             if d.get("visible", True):
                 self.show()
+            if d.get("checklist") and not d.get("compact"):
+                self._sync_checklist_height()
         finally:
             self._auto_resizing = False
             self._track_user_resize = True
@@ -1105,7 +1121,10 @@ class NoteWindow(QWidget):
             self.setMaximumHeight(16777215)
             self._auto_resizing = True
             try:
-                self.resize(self.width(), self._full_h)
+                if self.note_data.get("checklist"):
+                    self._sync_checklist_height()
+                else:
+                    self.resize(self.width(), self._full_h)
             finally:
                 self._auto_resizing = False
             self.setMinimumHeight(60)
@@ -1144,3 +1163,6 @@ class NoteWindow(QWidget):
     def showEvent(self, e) -> None:
         super().showEvent(e)
         self._configure_macos_window_level()
+        if self.note_data.get("checklist") and not self.note_data.get("compact"):
+            self._sync_checklist_height()
+            QTimer.singleShot(0, self._sync_checklist_height)

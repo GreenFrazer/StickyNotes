@@ -144,6 +144,29 @@ def test_checklist_window_grows_with_items(qapp, qtbot, temp_paths) -> None:
     assert body >= content, "checklist body should fit all items without clipping"
 
 
+def test_checklist_five_items_fit_on_init(qapp, qtbot, temp_paths) -> None:
+    """Loaded checklist notes must expand on show without clipping rows or footer."""
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    nd = StorageManager.default_note()
+    nd["checklist"] = True
+    nd["content"] = "\n".join(f"- [ ] item{i}" for i in range(5))
+    nd["height"] = 180
+    w = NoteWindow(nd, storage)
+    qtbot.addWidget(w)
+    w.show()
+    qtbot.wait(50)
+
+    assert w.checklist_widget.count() == 5
+    assert w.checklist_widget.height() >= w._checklist_content_height()
+    body = w.height() - w._chrome_height()
+    content = w.checklist_widget.height() + w.btn_add_checklist_item.height()
+    assert body >= content, "checklist body should fit all items and add button"
+    assert w.height() >= w._checklist_window_height(), (
+        "window should be tall enough for all checklist chrome"
+    )
+    assert w.lbl_ts.height() <= w.meta_row.height(), "footer meta row should not clip label"
+
+
 def test_user_resized_checklist_still_grows(qapp, qtbot, temp_paths) -> None:
     storage = StorageManager(temp_paths, restore_prompt=lambda: False)
     nd = StorageManager.default_note()
