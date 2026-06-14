@@ -11,6 +11,7 @@ from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFontMetrics, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
+    QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QInputDialog,
@@ -171,8 +172,11 @@ class NoteWindow(QWidget):
 
         self.checklist_widget = QListWidget(self)
         self.checklist_widget.setObjectName("checklistWidget")
+        self.checklist_widget.setFrameShape(QFrame.Shape.NoFrame)
+        self.checklist_widget.setSpacing(2)
         self.checklist_widget.hide()
         self.checklist_widget.itemChanged.connect(self._on_checklist_item_changed)
+        self.checklist_widget.itemDoubleClicked.connect(self._on_checklist_item_activated)
 
         self.editor = QTextEdit(self)
         self.editor.setAcceptRichText(False)
@@ -232,7 +236,7 @@ class NoteWindow(QWidget):
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(0)
         lo.addWidget(self.title_bar)
-        lo.addWidget(self.checklist_widget)
+        lo.addWidget(self.checklist_widget, 1)
         lo.addWidget(self.editor, 1)
         lo.addWidget(self.colour_row)
         lo.addWidget(self.meta_row)
@@ -268,26 +272,37 @@ class NoteWindow(QWidget):
             lines.append(f"- [{mark}] {text}")
         return "\n".join(lines)
 
+    def _new_checklist_item(self, text: str = "", *, checked: bool = False) -> QListWidgetItem:
+        item = QListWidgetItem(text)
+        item.setFlags(
+            item.flags()
+            | Qt.ItemFlag.ItemIsUserCheckable
+            | Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsEditable
+        )
+        item.setCheckState(
+            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        )
+        font = item.font()
+        font.setStrikeOut(checked)
+        item.setFont(font)
+        return item
+
     def _text_to_checklist(self, content: str) -> None:
         self._checklist_syncing = True
         try:
             self.checklist_widget.clear()
             for checked, text in parse_checklist(content):
-                item = QListWidgetItem(text)
-                item.setFlags(
-                    item.flags()
-                    | Qt.ItemFlag.ItemIsUserCheckable
-                    | Qt.ItemFlag.ItemIsEnabled
+                self.checklist_widget.addItem(
+                    self._new_checklist_item(text, checked=checked)
                 )
-                item.setCheckState(
-                    Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-                )
-                font = item.font()
-                font.setStrikeOut(checked)
-                item.setFont(font)
-                self.checklist_widget.addItem(item)
+            if self.checklist_widget.count() == 0:
+                self.checklist_widget.addItem(self._new_checklist_item())
         finally:
             self._checklist_syncing = False
+
+    def _on_checklist_item_activated(self, item: QListWidgetItem) -> None:
+        self.checklist_widget.editItem(item)
 
     def _on_checklist_item_changed(self, item: QListWidgetItem) -> None:
         if self._checklist_syncing:
@@ -323,16 +338,12 @@ class NoteWindow(QWidget):
         self._set_checklist_mode(not self.note_data.get("checklist", False))
 
     def _add_checklist_item(self) -> None:
-        text, ok = QInputDialog.getText(self, "Add item", "Item text:")
-        if not ok or not text.strip():
-            return
-        item = QListWidgetItem(text.strip())
-        item.setFlags(
-            item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
-        )
-        item.setCheckState(Qt.CheckState.Unchecked)
+        item = self._new_checklist_item()
         self.checklist_widget.addItem(item)
-        self._persist()
+        self.checklist_widget.setCurrentItem(item)
+        self.checklist_widget.editItem(item)
+        self._update_ts()
+        self._save_timer.start()
 
     def _clear_completed_checklist(self) -> None:
         if not self.note_data.get("checklist"):

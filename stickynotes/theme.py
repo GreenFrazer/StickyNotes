@@ -160,6 +160,27 @@ def note_window_stylesheet(bg: str, tb: str) -> str:
             color:{INK};
             selection-background-color:{tb};
         }}
+        #checklistWidget {{
+            background:{bg};
+            border:none;
+            outline:none;
+            {_font(FONT_BODY)}
+            padding:8px 6px;
+            color:{INK};
+        }}
+        #checklistWidget::item {{
+            min-height:24px;
+            padding:2px 0;
+            color:{INK};
+        }}
+        #checklistWidget::item:selected {{
+            background:{tb};
+            color:{INK};
+        }}
+        #checklistWidget::indicator {{
+            width:18px;
+            height:18px;
+        }}
         #colourRow {{ background:{bg}; }}
         #metaRow {{
             background:{bg};
