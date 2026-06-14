@@ -132,7 +132,6 @@ class NoteWindow(QWidget):
         self._drag_start = QPoint()
         self._editing = False
         self._auto_resizing = False
-        self._full_h = note_data.get("height", DEFAULT_NOTE_H)
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
@@ -149,7 +148,17 @@ class NoteWindow(QWidget):
         self._checklist_editing_item: QListWidgetItem | None = None
         self._track_user_resize = False
         self._end_edit_pending = False
+        self._grip_resizing = False
+        # Rest height: collapse target and expand baseline (never auto-expand height).
+        self._rest_h = note_data.get("height", DEFAULT_NOTE_H)
         self._build_ui()
+        self._migrate_stale_user_resized()
+        app = QApplication.instance()
+        if app is not None:
+            app.focusChanged.connect(self._on_app_focus_changed)
+            self.destroyed.connect(
+                lambda: app.focusChanged.disconnect(self._on_app_focus_changed)
+            )
         self._apply_data()
         self._apply_style()
         self._refresh_dots()
@@ -305,6 +314,7 @@ class NoteWindow(QWidget):
         cr.addStretch()
         self.grip = QSizeGrip(self.colour_row)
         self.grip.setFixedSize(16, 16)
+        self.grip.installEventFilter(self)
         cr.addWidget(self.grip)
 
         self.meta_row = QWidget(self)
@@ -493,7 +503,7 @@ class NoteWindow(QWidget):
         if not self.note_data.get("checklist") or self.note_data.get("compact"):
             return
         self.checklist_widget.setFixedHeight(self._checklist_content_height())
-        target = max(self._full_h, self._checklist_window_height())
+        target = max(self._rest_h, self._checklist_window_height())
         self._auto_resizing = True
         try:
             if target > self.height():
@@ -672,13 +682,20 @@ class NoteWindow(QWidget):
             f"#privateOverlayLabel{{font-size:{FONT_BODY}px;color:{INK_MUTED};background:transparent;padding:12px;}}"
         )
 
+    def _migrate_stale_user_resized(self) -> None:
+        # Pre-grip-resize builds set user_resized on title-bar drag and auto-grow.
+        if self.note_data.get("user_resized") and not self.note_data.get(
+            "grip_resized", False
+        ):
+            self.note_data["user_resized"] = False
+
     def _apply_data(self) -> None:
         d = self.note_data
         self.move(d.get("x", 200), d.get("y", 200))
-        self._full_h = d.get("height", DEFAULT_NOTE_H)
+        self._rest_h = d.get("height", DEFAULT_NOTE_H)
         self._auto_resizing = True
         try:
-            self.resize(d.get("width", DEFAULT_NOTE_W), self._full_h)
+            self.resize(d.get("width", DEFAULT_NOTE_W), self._rest_h)
             content = d.get("content", "")
             if d.get("checklist"):
                 self._text_to_checklist(content)
@@ -896,11 +913,12 @@ class NoteWindow(QWidget):
             self._private_overlay.setGeometry(self.editor.rect())
         if (
             self._track_user_resize
+            and self._grip_resizing
             and not self.note_data.get("compact", False)
             and not self._auto_resizing
-            and not self._editing
         ):
-            self._full_h = self.height()
+            self._rest_h = self.height()
+            self.note_data["grip_resized"] = True
             self.note_data["user_resized"] = True
         self._save_timer.start()
 
@@ -930,7 +948,8 @@ class NoteWindow(QWidget):
                 "x": self.x(),
                 "y": self.y(),
                 "width": self.width(),
-                "height": self._full_h,
+                "height": self._rest_h,
+                "grip_resized": self.note_data.get("grip_resized", False),
             }
         )
         self._update_ts()
@@ -985,16 +1004,24 @@ class NoteWindow(QWidget):
         checklist_editor = self._checklist_editor_line_edit()
         return checklist_editor is not None and checklist_editor.hasFocus()
 
-    def _deferred_end_editing(self, *, _retry: int = 0) -> None:
+    def _schedule_end_editing(self, *, force: bool = False) -> None:
+        if self._end_edit_pending and not force:
+            return
+        self._end_edit_pending = True
+        QTimer.singleShot(
+            0, lambda: self._deferred_end_editing(force=force)
+        )
+
+    def _deferred_end_editing(self, *, _retry: int = 0, force: bool = False) -> None:
         if self._drag_on:
             self._end_edit_pending = False
             return
-        if self._editing_focus_within_note():
+        if not force and self._editing_focus_within_note():
             if _retry < 2:
                 delay = 0 if _retry == 0 else 50
                 QTimer.singleShot(
                     delay,
-                    lambda: self._deferred_end_editing(_retry=_retry + 1),
+                    lambda: self._deferred_end_editing(_retry=_retry + 1, force=force),
                 )
             else:
                 self._end_edit_pending = False
@@ -1004,6 +1031,22 @@ class NoteWindow(QWidget):
         self._editing = False
         self._collapse_to_rest()
 
+    def _focus_within_note(self, widget: QWidget | None) -> bool:
+        if widget is None:
+            return False
+        return widget is self or self.isAncestorOf(widget)
+
+    def _on_app_focus_changed(
+        self, old: QWidget | None, new: QWidget | None
+    ) -> None:
+        if not self._editing and self.height() <= self._rest_h:
+            return
+        if not self._focus_within_note(old):
+            return
+        if self._focus_within_note(new):
+            return
+        self._schedule_end_editing(force=True)
+
     def _expand_for_editing(self) -> None:
         if (
             self.note_data.get("compact")
@@ -1011,7 +1054,7 @@ class NoteWindow(QWidget):
             or self._auto_resizing
         ):
             return
-        target = max(self._full_h, self._expanded_height())
+        target = max(self._rest_h, self._expanded_height())
         if target <= self.height():
             if not self._editor_content_overflows():
                 return
@@ -1024,13 +1067,13 @@ class NoteWindow(QWidget):
             self._auto_resizing = False
 
     def _collapse_to_rest(self) -> None:
-        if self.note_data.get("compact") or self.note_data.get("user_resized"):
+        if self.note_data.get("compact") or self.note_data.get("grip_resized"):
             return
-        if self.height() == self._full_h:
+        if self.height() <= self._rest_h:
             return
         self._auto_resizing = True
         try:
-            self.resize(self.width(), self._full_h)
+            self.resize(self.width(), self._rest_h)
         finally:
             self._auto_resizing = False
 
@@ -1041,7 +1084,23 @@ class NoteWindow(QWidget):
             logger.exception("note %s eventFilter error", self.note_id)
             return False
 
+    def changeEvent(self, event) -> None:
+        if event.type() == QEvent.Type.ActivationChange and not self.isActiveWindow():
+            if self._editing or self.height() > self._rest_h:
+                self._schedule_end_editing(force=True)
+        super().changeEvent(event)
+
     def _dispatch_event_filter(self, obj, event) -> bool:
+        grip = getattr(self, "grip", None)
+        if grip is not None and obj is grip:
+            et = event.type()
+            if et == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self._grip_resizing = True
+            elif et == QEvent.Type.MouseButtonRelease and isinstance(event, QMouseEvent):
+                if event.button() == Qt.MouseButton.LeftButton:
+                    self._grip_resizing = False
+
         if obj is self.title_bar:
             et = event.type()
             if et == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
@@ -1086,9 +1145,7 @@ class NoteWindow(QWidget):
             ):
                 self._begin_editing_expand()
             elif obj is self.editor and event.type() == QEvent.Type.FocusOut:
-                if not self._end_edit_pending:
-                    self._end_edit_pending = True
-                    QTimer.singleShot(0, self._deferred_end_editing)
+                self._schedule_end_editing()
         return super().eventFilter(obj, event)
 
     def _set_opacity(self, v: float) -> None:
@@ -1118,7 +1175,7 @@ class NoteWindow(QWidget):
     def _set_compact(self, c: bool) -> None:
         if c:
             if not self.note_data.get("compact", False):
-                self._full_h = self.height()
+                self._rest_h = self.height()
             self.editor.hide()
             self.checklist_body.hide()
             self.colour_row.hide()
@@ -1140,7 +1197,7 @@ class NoteWindow(QWidget):
                 if self.note_data.get("checklist"):
                     self._sync_checklist_height()
                 else:
-                    self.resize(self.width(), self._full_h)
+                    self.resize(self.width(), self._rest_h)
             finally:
                 self._auto_resizing = False
             self.setMinimumHeight(60)

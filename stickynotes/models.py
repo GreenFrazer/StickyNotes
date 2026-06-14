@@ -56,6 +56,7 @@ def default_note(note_id: str | None = None) -> dict[str, Any]:
         "compact": False,
         "private": False,
         "user_resized": False,
+        "grip_resized": False,
         "tags": [],
         "checklist": False,
         "reminder_at": None,
@@ -81,6 +82,7 @@ NOTE_DEFAULTS = {
     "compact": False,
     "private": False,
     "user_resized": False,
+    "grip_resized": False,
     "tags": [],
     "checklist": False,
     "reminder_at": None,
@@ -283,7 +285,7 @@ def normalize_note(raw: dict[str, Any], note_id: str) -> dict[str, Any] | None:
             note[key] = int(note.get(key, NOTE_DEFAULTS[key]))
         except (TypeError, ValueError):
             note[key] = NOTE_DEFAULTS[key]
-    for key in ("always_on_top", "visible", "compact", "private", "user_resized"):
+    for key in ("always_on_top", "visible", "compact", "private", "user_resized", "grip_resized"):
         note[key] = bool(note.get(key, NOTE_DEFAULTS[key]))
     note["content"] = str(note.get("content", ""))
     note["tags"] = normalize_tags(note.get("tags", []))

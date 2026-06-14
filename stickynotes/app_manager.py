@@ -469,6 +469,7 @@ class AppManager:
         nd["width"] = w
         nd["height"] = h
         nd["user_resized"] = False
+        nd["grip_resized"] = False
         self._spawn(nd)
         self.notes[nd["id"]]._persist()
         self._track_note_content(nd["id"])

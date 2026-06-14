@@ -172,7 +172,7 @@ def test_user_resized_checklist_still_grows(qapp, qtbot, temp_paths) -> None:
     nd = StorageManager.default_note()
     nd["checklist"] = True
     nd["height"] = 180
-    nd["user_resized"] = True
+    nd["grip_resized"] = True
     w = NoteWindow(nd, storage)
     qtbot.addWidget(w)
     w.show()
