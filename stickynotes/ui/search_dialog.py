@@ -39,8 +39,7 @@ class SearchDialog(QDialog):
         self.setWindowTitle("Search Notes")
         self.setMinimumSize(480, 360)
         self.setWindowFlags(
-            Qt.WindowType.Dialog
-            | Qt.WindowType.WindowStaysOnTopHint
+            (self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
             & ~Qt.WindowType.WindowContextHelpButtonHint
         )
         self._debounce = QTimer(self)
@@ -72,14 +71,27 @@ class SearchDialog(QDialog):
         self._notes = dict(notes)
 
     def show_and_focus(self) -> None:
-        self._input.clear()
-        self._results.clear()
-        self._status.setText("")
-        self._revealed_private.clear()
-        self.show()
+        if self._debounce.isActive():
+            self._debounce.stop()
+        self._input.blockSignals(True)
+        try:
+            self._input.clear()
+            self._results.clear()
+            self._status.setText("")
+            self._revealed_private.clear()
+        finally:
+            self._input.blockSignals(False)
+        if not self.isVisible():
+            self.show()
+        # Defer raise/focus to avoid re-entrant showEvent crashes on macOS.
+        QTimer.singleShot(0, self._raise_and_focus)
+
+    def _raise_and_focus(self) -> None:
+        if not self.isVisible():
+            return
         self.raise_()
         self.activateWindow()
-        self._input.setFocus()
+        self._input.setFocus(Qt.FocusReason.ShortcutFocusReason)
 
     def _on_text_changed(self, _text: str) -> None:
         self._debounce.start()

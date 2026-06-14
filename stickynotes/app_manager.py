@@ -68,6 +68,7 @@ class AppManager:
         tm.addAction("\U0001F4E4  Export all notes\u2026").triggered.connect(self.export_notes)
         tm.addAction("\U0001F4CB  Show All").triggered.connect(self.show_all_notes)
         tm.addAction("\U0001F648  Hide All").triggered.connect(self.hide_all_notes)
+        tm.addAction("\U0001F50D  Search notes\u2026").triggered.connect(self.open_search)
         tm.addSeparator()
         tm.addAction("\u2699  Settings").triggered.connect(self.open_settings)
         tm.addSeparator()
@@ -153,6 +154,10 @@ class AppManager:
         self._search_dialog.show_and_focus()
 
     def _search_note_selected(self, nid: str) -> None:
+        # Defer until search dialog has finished closing to avoid nested showEvent crashes.
+        QTimer.singleShot(0, lambda nid=nid: self._focus_searched_note(nid))
+
+    def _focus_searched_note(self, nid: str) -> None:
         n = self.notes.get(nid)
         if n:
             n.show_note()
@@ -296,6 +301,7 @@ class AppManager:
                 dock.sig_show_all,
                 dock.sig_hide_all,
                 dock.sig_settings,
+                dock.sig_search,
                 dock.sig_exit,
                 dock.sig_card_click,
                 dock.sig_shortcut_click,
@@ -333,6 +339,7 @@ class AppManager:
             dock.sig_show_all.connect(self.show_all_notes)
             dock.sig_hide_all.connect(self.hide_all_notes)
             dock.sig_settings.connect(self.open_settings)
+            dock.sig_search.connect(self.open_search)
             dock.sig_exit.connect(self.exit_app)
             dock.sig_card_click.connect(self._card_clicked)
             dock.sig_shortcut_click.connect(self._shortcut_clicked)
@@ -583,7 +590,8 @@ class AppManager:
             QSystemTrayIcon.MessageIcon.Information,
             10_000,
         )
-        reply = QMessageBox(self.app.activeWindow())
+        parent = self.app.activeWindow()
+        reply = QMessageBox(parent if parent else None)
         reply.setWindowTitle("Reminder")
         reply.setText(note_title(nd.get("content", "")) or "Sticky Note")
         reply.setInformativeText("What would you like to do?")

@@ -198,6 +198,53 @@ def test_reminder_service_poll_emits_due(qapp, qtbot) -> None:
     assert fired == ["n1"]
 
 
+def test_reminder_presets_minute_offsets() -> None:
+    presets = ReminderService.reminder_presets()
+    assert [label for label, _ in presets] == [
+        "In 5 minutes",
+        "In 10 minutes",
+        "In 15 minutes",
+        "In 30 minutes",
+        "In 60 minutes",
+    ]
+    assert [minutes for _, minutes in presets] == [5, 10, 15, 30, 60]
+
+
+def test_reminder_at_offset_from_now() -> None:
+    before = datetime.now()
+    due = ReminderService.reminder_at_offset(10)
+    after = datetime.now()
+    assert before + timedelta(minutes=10) <= due <= after + timedelta(minutes=10)
+
+
+def test_reminder_service_refires_after_new_future_reminder(qapp, qtbot) -> None:
+    fired: list[str] = []
+    notes: dict[str, dict] = {
+        "n1": {
+            "content": "Task",
+            "reminder_at": (datetime.now() - timedelta(seconds=1)).isoformat(
+                timespec="seconds"
+            ),
+        }
+    }
+    svc = ReminderService(lambda: notes)
+    svc.reminder_due.connect(lambda nid, _nd: fired.append(nid))
+    svc._poll()
+    assert fired == ["n1"]
+    svc._poll()
+    assert fired == ["n1"]
+    notes["n1"]["reminder_at"] = (
+        datetime.now() + timedelta(minutes=5)
+    ).isoformat(timespec="seconds")
+    svc._poll()
+    assert fired == ["n1"]
+    notes["n1"]["reminder_at"] = (
+        datetime.now() - timedelta(seconds=1)
+    ).isoformat(timespec="seconds")
+    svc._poll()
+    assert fired == ["n1", "n1"]
+
+
 def test_search_dialog_finds_content(qapp, qtbot) -> None:
     note = StorageManager.default_note()
     note["content"] = "Find me alpha beta"
@@ -223,3 +270,17 @@ def test_search_dialog_masks_private_until_selected(qapp, qtbot) -> None:
     assert dlg._results.count() == 1
     item = dlg._results.item(0)
     assert "Private" in item.text()
+
+
+def test_search_dialog_show_and_focus_reentrant(qapp, qtbot) -> None:
+    note = StorageManager.default_note()
+    note["content"] = "Find me alpha beta"
+    notes = {note["id"]: note}
+
+    dlg = SearchDialog(notes, lambda nid: notes[nid]["content"])
+    qtbot.addWidget(dlg)
+    for _ in range(5):
+        dlg.show_and_focus()
+        qtbot.wait(10)
+    assert dlg.isVisible()
+    assert dlg._input.text() == ""

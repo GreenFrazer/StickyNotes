@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-POLL_MS = 45_000
+POLL_MS = 20_000
 
 
 class ReminderService(QObject):
@@ -49,26 +49,33 @@ class ReminderService(QObject):
         for nid, nd in self._notes_provider().items():
             raw = nd.get("reminder_at")
             if not raw:
+                self._fired.discard(nid)
                 continue
             try:
                 due = datetime.fromisoformat(str(raw))
             except (ValueError, TypeError):
                 continue
-            if due <= now and nid not in self._fired:
+            if due > now:
+                self._fired.discard(nid)
+                continue
+            if nid not in self._fired:
                 self._fired.add(nid)
                 self.reminder_due.emit(nid, dict(nd))
 
     @staticmethod
-    def reminder_presets() -> list[tuple[str, datetime]]:
-        now = datetime.now()
-        tomorrow_9 = (now + timedelta(days=1)).replace(
-            hour=9, minute=0, second=0, microsecond=0
-        )
+    def reminder_presets() -> list[tuple[str, int]]:
+        """Return (label, minutes-from-now) pairs for the context menu."""
         return [
-            ("In 15 minutes", now + timedelta(minutes=15)),
-            ("In 1 hour", now + timedelta(hours=1)),
-            ("Tomorrow 9:00 AM", tomorrow_9),
+            ("In 5 minutes", 5),
+            ("In 10 minutes", 10),
+            ("In 15 minutes", 15),
+            ("In 30 minutes", 30),
+            ("In 60 minutes", 60),
         ]
+
+    @staticmethod
+    def reminder_at_offset(minutes: int) -> datetime:
+        return datetime.now() + timedelta(minutes=minutes)
 
     @staticmethod
     def format_reminder(iso: str | None) -> str:

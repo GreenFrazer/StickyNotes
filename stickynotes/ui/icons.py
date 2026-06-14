@@ -23,6 +23,7 @@ GLYPHS: dict[str, str] = {
     "show_all": "\U0001F4CB",
     "hide_all": "\U0001F648",
     "settings": "\u2699",
+    "search": "\U0001F50D",
     "exit": "\u274C",
 }
 

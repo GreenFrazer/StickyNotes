@@ -795,9 +795,11 @@ class NoteWindow(QWidget):
             m.addAction("Add checklist item\u2026").triggered.connect(self._add_checklist_item)
         m.addAction("\U0001F3F7  Edit tags\u2026").triggered.connect(self._edit_tags)
         rm = m.addMenu("\u23F0  Remind me\u2026")
-        for label, when in ReminderService.reminder_presets():
+        for label, minutes in ReminderService.reminder_presets():
             rm.addAction(label).triggered.connect(
-                lambda _checked=False, w=when: self._pick_reminder(w)
+                lambda _checked=False, m=minutes: self._pick_reminder(
+                    ReminderService.reminder_at_offset(m)
+                )
             )
         rm.addAction("Custom\u2026").triggered.connect(self._custom_reminder)
         if self.note_data.get("reminder_at"):
@@ -1235,7 +1237,12 @@ class NoteWindow(QWidget):
 
     def showEvent(self, e) -> None:
         super().showEvent(e)
-        self._configure_macos_window_level()
+        if sys.platform == "darwin":
+            from stickynotes.platform.macos.windows import schedule_configure_floating_window
+
+            schedule_configure_floating_window(
+                self, on_top=self.note_data.get("always_on_top", False)
+            )
         if self.note_data.get("checklist") and not self.note_data.get("compact"):
             self._sync_checklist_height()
             QTimer.singleShot(0, self._sync_checklist_height)

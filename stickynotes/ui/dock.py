@@ -224,12 +224,9 @@ class DockNotePopup(QWidget):
     def showEvent(self, e) -> None:
         super().showEvent(e)
         if sys.platform == "darwin":
-            try:
-                from stickynotes.platform.macos.windows import configure_floating_window
+            from stickynotes.platform.macos.windows import schedule_configure_floating_window
 
-                configure_floating_window(self, on_top=True)
-            except Exception:
-                pass
+            schedule_configure_floating_window(self, on_top=True)
 
 
 class DockNoteIndicator(QFrame):
@@ -363,12 +360,9 @@ class DockFilePopup(QWidget):
     def showEvent(self, e) -> None:
         super().showEvent(e)
         if sys.platform == "darwin":
-            try:
-                from stickynotes.platform.macos.windows import configure_floating_window
+            from stickynotes.platform.macos.windows import schedule_configure_floating_window
 
-                configure_floating_window(self, on_top=True)
-            except Exception:
-                pass
+            schedule_configure_floating_window(self, on_top=True)
 
 
 class DockFileIndicator(QFrame):
@@ -452,6 +446,7 @@ class DockWidget(QWidget):
     sig_show_all = pyqtSignal()
     sig_hide_all = pyqtSignal()
     sig_settings = pyqtSignal()
+    sig_search = pyqtSignal()
     sig_exit = pyqtSignal()
     sig_card_click = pyqtSignal(str)
     sig_shortcut_click = pyqtSignal(str)
@@ -579,6 +574,7 @@ class DockWidget(QWidget):
             [
                 ("show_all", "Show All", self.sig_show_all),
                 ("hide_all", "Hide All", self.sig_hide_all),
+                ("search", "Search notes\u2026", self.sig_search),
                 ("settings", "Settings", self.sig_settings),
             ],
             [("exit", "Exit", self.sig_exit)],
@@ -1073,12 +1069,9 @@ class DockWidget(QWidget):
     def showEvent(self, e) -> None:
         super().showEvent(e)
         if sys.platform == "darwin":
-            try:
-                from stickynotes.platform.macos.windows import configure_floating_window
+            from stickynotes.platform.macos.windows import schedule_configure_floating_window
 
-                configure_floating_window(self, on_top=True)
-            except Exception:
-                pass
+            schedule_configure_floating_window(self, on_top=True)
 
     def destroy_dock(self) -> None:
         if self._screen is not None:

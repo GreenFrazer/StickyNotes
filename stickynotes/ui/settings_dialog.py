@@ -59,13 +59,15 @@ class SettingsDialog(QDialog):
                 "\u2328  Shortcuts (global, requires Accessibility on macOS):<br>"
                 "<b>Cmd+Shift+N</b> or <b>Ctrl+Shift+N</b> \u2013 New note<br>"
                 "<b>Cmd+Shift+H</b> or <b>Ctrl+Shift+H</b> \u2013 Hide all notes<br>"
-                "<b>Cmd+Shift+F</b> or <b>Ctrl+Shift+F</b> \u2013 Search notes"
+                "<b>Cmd+Shift+F</b> or <b>Ctrl+Shift+F</b> \u2013 Search notes<br>"
+                "Search is also on the dock toolbar and tray menu"
             )
         return (
             "\u2328  Shortcuts:<br>"
             "<b>Ctrl+Shift+N</b> \u2013 New note<br>"
             "<b>Ctrl+Shift+H</b> \u2013 Hide all notes<br>"
-            "<b>Ctrl+Shift+F</b> \u2013 Search notes"
+            "<b>Ctrl+Shift+F</b> \u2013 Search notes<br>"
+            "Search is also on the dock toolbar and tray menu"
         )
 
     def _build(self) -> None:

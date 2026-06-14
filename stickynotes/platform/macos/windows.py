@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from ctypes import c_void_p
 from typing import TYPE_CHECKING
@@ -16,6 +17,9 @@ logger = logging.getLogger(__name__)
 def configure_floating_window(widget: QWidget, *, on_top: bool = False) -> None:
     """Keep widgets visible across monitors, Spaces, and when the app is inactive."""
     if sys.platform != "darwin":
+        return
+    # AppKit/NSWindow calls segfault under Qt's offscreen platform (pytest/CI).
+    if os.environ.get("QT_QPA_PLATFORM", "").lower() == "offscreen":
         return
 
     try:
@@ -53,3 +57,19 @@ def configure_floating_window(widget: QWidget, *, on_top: bool = False) -> None:
         return
     except Exception:
         logger.exception("Failed to configure macOS floating window for %r", widget)
+
+
+def schedule_configure_floating_window(widget: QWidget, *, on_top: bool = False) -> None:
+    """Defer NSWindow tweaks until after the current showEvent stack unwinds."""
+    if sys.platform != "darwin":
+        return
+
+    from PyQt6.QtCore import QTimer
+
+    def _apply() -> None:
+        try:
+            configure_floating_window(widget, on_top=on_top)
+        except RuntimeError:
+            pass
+
+    QTimer.singleShot(0, _apply)
