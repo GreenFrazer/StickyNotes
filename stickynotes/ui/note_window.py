@@ -102,7 +102,6 @@ class NoteWindow(QWidget):
         self.title_bar.setFixedHeight(self.TB)
         self.title_bar.setObjectName("titleBar")
         self.title_bar.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.title_bar.installEventFilter(self)
 
         self.btn_copy = QPushButton(self.title_bar)
         self.btn_copy.setFixedSize(24, 24)
@@ -147,10 +146,10 @@ class NoteWindow(QWidget):
 
         self.editor = QTextEdit(self)
         self.editor.setAcceptRichText(False)
-        self.editor.setDragEnabled(False)
         self.editor.setPlaceholderText("Type your note here\u2026")
         self.editor.textChanged.connect(self._on_text)
         self.editor.setObjectName("noteEditor")
+        self.title_bar.installEventFilter(self)
         self.editor.installEventFilter(self)
         self._private_overlay = QWidget(self.editor)
         self._private_overlay.setObjectName("privateOverlay")
