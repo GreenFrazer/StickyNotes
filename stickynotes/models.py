@@ -33,7 +33,11 @@ def auto_size(content: str) -> tuple[int, int]:
 
 
 def default_settings() -> dict[str, Any]:
-    return {"dock_position": "top", "dark_mode": False}
+    return {
+        "dock_position": "top",
+        "dark_mode": False,
+        "default_tag": "",
+    }
 
 
 def default_note(note_id: str | None = None) -> dict[str, Any]:
@@ -52,6 +56,9 @@ def default_note(note_id: str | None = None) -> dict[str, Any]:
         "compact": False,
         "private": False,
         "user_resized": False,
+        "tags": [],
+        "checklist": False,
+        "reminder_at": None,
         "created_at": now,
         "modified_at": now,
     }
@@ -74,6 +81,9 @@ NOTE_DEFAULTS = {
     "compact": False,
     "private": False,
     "user_resized": False,
+    "tags": [],
+    "checklist": False,
+    "reminder_at": None,
 }
 
 
@@ -89,10 +99,66 @@ def dock_popup_preview_text() -> str:
     return "Private note — hover copy still works"
 
 
+def normalize_tags(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    seen: set[str] = set()
+    tags: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        tag = item.strip().lower()
+        if tag and tag not in seen:
+            seen.add(tag)
+            tags.append(tag)
+    return tags
+
+
+def parse_checklist(content: str) -> list[tuple[bool, str]]:
+    """Parse markdown-style checklist lines: '- [ ] item' / '- [x] item'."""
+    items: list[tuple[bool, str]] = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if len(stripped) < 6:
+            continue
+        if stripped.startswith("- [ ] "):
+            items.append((False, stripped[6:]))
+        elif stripped.startswith("- [x] ") or stripped.startswith("- [X] "):
+            items.append((True, stripped[6:]))
+    return items
+
+
+def checklist_progress(content: str) -> tuple[int, int]:
+    items = parse_checklist(content)
+    if not items:
+        return 0, 0
+    done = sum(1 for checked, _ in items if checked)
+    return done, len(items)
+
+
+def content_has_checklist_items(content: str) -> bool:
+    return bool(parse_checklist(content))
+
+
+def note_title(content: str) -> str:
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped[:80]
+    return ""
+
+
 def dock_indicator_text(note: dict) -> str:
     if is_private(note):
         return "\U0001F512"
     content = note.get("content", "").strip()
+    if note.get("checklist") or content_has_checklist_items(content):
+        done, total = checklist_progress(content)
+        if total:
+            clock = "\u23F0" if note.get("reminder_at") else ""
+            return f"{clock}{done}/{total}" if clock else f"{done}/{total}"
+    if note.get("reminder_at"):
+        return "\u23F0"
     return content[:4] or "\u2026"
 
 
@@ -220,6 +286,15 @@ def normalize_note(raw: dict[str, Any], note_id: str) -> dict[str, Any] | None:
     for key in ("always_on_top", "visible", "compact", "private", "user_resized"):
         note[key] = bool(note.get(key, NOTE_DEFAULTS[key]))
     note["content"] = str(note.get("content", ""))
+    note["tags"] = normalize_tags(note.get("tags", []))
+    note["checklist"] = bool(note.get("checklist", NOTE_DEFAULTS["checklist"]))
+    if not note["checklist"] and content_has_checklist_items(note["content"]):
+        note["checklist"] = True
+    reminder = note.get("reminder_at")
+    if reminder in (None, "", "null"):
+        note["reminder_at"] = None
+    else:
+        note["reminder_at"] = str(reminder)
     for ts in ("created_at", "modified_at"):
         if not note.get(ts):
             note[ts] = datetime.now().isoformat(timespec="seconds")

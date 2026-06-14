@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -23,6 +24,9 @@ from stickynotes.platform import get_paths
 from stickynotes.platform.base import PlatformPaths
 
 logger = logging.getLogger(__name__)
+
+ARCHIVE_FORMAT = "stickynotes"
+ARCHIVE_VERSION = "1"
 
 
 class StorageManager:
@@ -247,3 +251,141 @@ class StorageManager:
         ]
         self._dirty = True
         self.save()
+
+    def get_all_stored_notes(self) -> dict[str, dict[str, Any]]:
+        """All notes with non-empty content (includes hidden notes)."""
+        return self.get_all_notes()
+
+    def export_data_json(self) -> str:
+        return self._serialize()
+
+    def export_archive(self, dest: Path) -> None:
+        """Write data.json or a .stickynotes zip archive."""
+        dest = Path(dest)
+        serialized = self._serialize()
+        if dest.suffix.lower() == ".stickynotes":
+            metadata = {
+                "format": ARCHIVE_FORMAT,
+                "version": ARCHIVE_VERSION,
+                "exported_at": datetime.now().isoformat(timespec="seconds"),
+                "note_count": len(self._data.get("notes", {})),
+            }
+            with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("data.json", serialized)
+                zf.writestr(
+                    "metadata.json",
+                    json.dumps(metadata, indent=2, ensure_ascii=False),
+                )
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(serialized, encoding="utf-8")
+
+    @staticmethod
+    def _read_import_payload(path: Path) -> dict[str, Any]:
+        path = Path(path)
+        if path.suffix.lower() == ".stickynotes" or zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path, "r") as zf:
+                if "data.json" not in zf.namelist():
+                    raise ValueError("Invalid archive: missing data.json")
+                raw = zf.read("data.json").decode("utf-8")
+                return json.loads(raw)
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        if not isinstance(raw, dict):
+            raise ValueError("Import file must contain a JSON object")
+        return raw
+
+    def preview_import(self, path: Path) -> dict[str, Any]:
+        """Return note counts for import preview."""
+        incoming = self._normalize_loaded(self._read_import_payload(path))
+        incoming_ids = set(incoming.get("notes", {}))
+        existing_ids = set(self._data.get("notes", {}))
+        overlap = incoming_ids & existing_ids
+        conflicts = 0
+        for nid in overlap:
+            ex = self._data["notes"][nid]
+            inc = incoming["notes"][nid]
+            if ex.get("modified_at", "") != inc.get("modified_at", ""):
+                conflicts += 1
+        return {
+            "incoming_count": len(incoming_ids),
+            "existing_count": len(existing_ids),
+            "overlap_count": len(overlap),
+            "conflict_count": conflicts,
+        }
+
+    def _merge_notes(self, incoming: dict[str, Any]) -> dict[str, int]:
+        added = merged = kept = 0
+        for nid, nd in incoming.get("notes", {}).items():
+            existing = self._data.get("notes", {}).get(nid)
+            if existing:
+                if nd.get("modified_at", "") > existing.get("modified_at", ""):
+                    self._data["notes"][nid] = nd
+                    merged += 1
+                else:
+                    kept += 1
+            else:
+                self._data.setdefault("notes", {})[nid] = nd
+                added += 1
+        incoming_shortcuts = incoming.get("dock_shortcuts", [])
+        if isinstance(incoming_shortcuts, list) and incoming_shortcuts:
+            seen = {
+                s.get("path")
+                for s in self._data.get("dock_shortcuts", [])
+                if isinstance(s, dict)
+            }
+            for entry in incoming_shortcuts:
+                if not isinstance(entry, dict):
+                    continue
+                path = entry.get("path")
+                if path and path not in seen:
+                    self._data.setdefault("dock_shortcuts", []).append(entry)
+                    seen.add(path)
+        return {"added": added, "merged": merged, "kept": kept}
+
+    def import_data(self, path: Path, *, merge: bool = True) -> dict[str, Any]:
+        """Import JSON or .stickynotes zip; merge prefers newer modified_at."""
+        incoming = self._normalize_loaded(self._read_import_payload(path))
+        if merge:
+            stats = self._merge_notes(incoming)
+            stats["mode"] = "merge"
+            stats["note_count"] = len(self._data.get("notes", {}))
+        else:
+            self._data = incoming
+            stats = {
+                "mode": "replace",
+                "note_count": len(incoming.get("notes", {})),
+            }
+        self._dirty = True
+        self.save()
+        return stats
+
+    def list_backups(self) -> list[dict[str, Any]]:
+        backups: list[dict[str, Any]] = []
+        if self.backup_path.exists():
+            stat = self.backup_path.stat()
+            backups.append(
+                {
+                    "path": str(self.backup_path),
+                    "name": self.backup_path.name,
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(
+                        timespec="seconds"
+                    ),
+                    "size": stat.st_size,
+                }
+            )
+        return backups
+
+    def restore_from_backup(self, backup_path: Path | None = None) -> bool:
+        path = Path(backup_path) if backup_path else self.backup_path
+        if not path.is_file():
+            return False
+        try:
+            raw = self._read_json_file(path)
+            self._data = self._normalize_loaded(raw)
+            self._dirty = True
+            self.save()
+            return True
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.error("Backup restore failed: %s", exc)
+            return False

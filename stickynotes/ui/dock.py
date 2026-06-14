@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from stickynotes.models import (
+    checklist_progress,
     dock_file_badge,
     dock_file_label,
     dock_indicator_text,
@@ -41,6 +42,7 @@ from stickynotes.models import (
     is_private,
     local_paths_from_mime_urls,
 )
+from stickynotes.reminders import ReminderService
 from stickynotes.theme import (
     NOTE_COLOURS,
     TITLE_BAR_COLOURS,
@@ -166,6 +168,10 @@ class DockNotePopup(QWidget):
         mod = d.get("modified_at", "")
         if is_private(d):
             ts = f"Private  \u00B7  Modified: {fmt_dt(mod)}" if mod else "Private"
+        elif d.get("checklist"):
+            done, total = checklist_progress(content)
+            extra = f"  \u00B7  {done}/{total} done" if total else ""
+            ts = f"{chars} chars{extra}  \u00B7  Modified: {fmt_dt(mod)}" if mod else ""
         else:
             ts = f"{chars} chars  \u00B7  Modified: {fmt_dt(mod)}" if mod else ""
         self.ts_label = QLabel(ts)
@@ -192,6 +198,13 @@ class DockNotePopup(QWidget):
         self.preview.setText(content[:300] if content else "")
         mod = note_data.get("modified_at", "")
         chars = len(content)
+        if note_data.get("checklist"):
+            done, total = checklist_progress(content)
+            extra = f"  \u00B7  {done}/{total} done" if total else ""
+            self.ts_label.setText(
+                f"{chars} chars{extra}  \u00B7  Modified: {fmt_dt(mod)}" if mod else ""
+            )
+            return
         self.ts_label.setText(
             f"{chars} chars  \u00B7  Modified: {fmt_dt(mod)}" if mod else ""
         )
@@ -273,8 +286,11 @@ class DockNoteIndicator(QFrame):
         txt = dock_indicator_text(note_data)
         self.lbl_preview.setText(txt)
         visible = note_data.get("visible", True)
+        overdue = ReminderService.is_overdue(note_data.get("reminder_at"))
         self.setStyleSheet(
-            dock_note_indicator_stylesheet(bg, tb, visible=visible)
+            dock_note_indicator_stylesheet(
+                bg, tb, visible=visible, overdue=overdue
+            )
         )
 
     def update_note(self, note_data: dict[str, Any]) -> None:
@@ -442,6 +458,7 @@ class DockWidget(QWidget):
     sig_pin_file = pyqtSignal()
     sig_files_dropped = pyqtSignal(list)
     sig_remove_shortcut = pyqtSignal(str)
+    sig_tag_filter = pyqtSignal(str)
 
     THICK = 56
     TRIGGER = 4
@@ -482,6 +499,9 @@ class DockWidget(QWidget):
         self._popup_timer.timeout.connect(self._hide_popup)
         self._notes_data: dict[str, dict[str, Any]] = {}
         self._shortcuts_data: list[dict[str, Any]] = []
+        self._known_tags: list[str] = []
+        self._active_tag = ""
+        self._tag_buttons: list[QPushButton] = []
         self._drag_over = False
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -513,6 +533,12 @@ class DockWidget(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(4, 4, 4, 4)
         outer.setSpacing(4)
+        self._tag_row = QWidget()
+        self._tag_row.setObjectName("tagFilterRow")
+        self._tag_layout = QHBoxLayout(self._tag_row)
+        self._tag_layout.setContentsMargins(0, 0, 0, 0)
+        self._tag_layout.setSpacing(4)
+        outer.addWidget(self._tag_row)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setStyleSheet(dock_scroll_stylesheet())
@@ -649,11 +675,36 @@ class DockWidget(QWidget):
     def set_content_getter(self, getter: Callable[[str], str]) -> None:
         self._content_getter = getter
 
+    def _rebuild_tag_filters(self, tags: list[str], active: str) -> None:
+        while self._tag_layout.count():
+            item = self._tag_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._tag_buttons.clear()
+        chips = [""] + sorted({t for t in tags if t})
+        for tag in chips:
+            label = "All" if not tag else tag
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(tag == active)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setObjectName("tagChip")
+            btn.clicked.connect(lambda _checked=False, t=tag: self.sig_tag_filter.emit(t))
+            self._tag_layout.addWidget(btn)
+            self._tag_buttons.append(btn)
+        self._tag_layout.addStretch()
+
     def refresh_cards(
         self,
         notes: dict[str, dict[str, Any]],
         shortcuts: list[dict[str, Any]] | None = None,
+        tags: list[str] | None = None,
+        active_tag: str = "",
     ) -> None:
+        self._known_tags = list(tags or [])
+        self._active_tag = active_tag
+        self._rebuild_tag_filters(self._known_tags, active_tag)
         for ind in self._file_indicators:
             ind.setParent(None)
             ind.deleteLater()
@@ -732,7 +783,12 @@ class DockWidget(QWidget):
                 break
         self._indicators.insert(insert_at, ind)
         self._indicator_map[nid] = ind
-        self.ind_layout.insertWidget(self._note_layout_index(insert_at), ind)
+        layout_idx = self._note_layout_index(insert_at)
+        stretch_idx = self.ind_layout.count() - 1
+        if stretch_idx >= 0 and self.ind_layout.itemAt(stretch_idx).spacerItem():
+            self.ind_layout.insertWidget(layout_idx, ind)
+        else:
+            self.ind_layout.addWidget(ind)
 
     def remove_note_card(self, nid: str) -> None:
         self._notes_data.pop(nid, None)
@@ -748,6 +804,12 @@ class DockWidget(QWidget):
             self._popup = None
 
     def _show_file_popup(self, sid: str, gpos: QPoint) -> None:
+        if (
+            self._file_popup
+            and self._file_popup.shortcut_id == sid
+            and self._file_popup.isVisible()
+        ):
+            return
         self._popup_timer.stop()
         if self._file_popup:
             self._file_popup.close()
@@ -785,6 +847,8 @@ class DockWidget(QWidget):
         self._file_popup.show()
 
     def _show_popup(self, nid: str, gpos: QPoint) -> None:
+        if self._popup and self._popup.note_id == nid and self._popup.isVisible():
+            return
         self._popup_timer.stop()
         if self._file_popup:
             self._file_popup.close()

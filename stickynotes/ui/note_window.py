@@ -13,7 +13,10 @@ from PyQt6.QtWidgets import (
     QApplication,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMenu,
     QMessageBox,
     QPushButton,
@@ -23,7 +26,16 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from stickynotes.models import fmt_dt, is_private, private_preview_text
+from stickynotes.models import (
+    checklist_progress,
+    content_has_checklist_items,
+    fmt_dt,
+    is_private,
+    normalize_tags,
+    parse_checklist,
+    private_preview_text,
+)
+from stickynotes.reminders import ReminderService
 from stickynotes.theme import (
     DEFAULT_NOTE_H,
     DEFAULT_NOTE_W,
@@ -83,6 +95,7 @@ class NoteWindow(QWidget):
         self._copy_revert.setSingleShot(True)
         self._copy_revert.setInterval(1000)
         self._copy_revert.timeout.connect(self._reset_copy_icon)
+        self._checklist_syncing = False
         self._build_ui()
         self._apply_data()
         self._apply_style()
@@ -145,11 +158,21 @@ class NoteWindow(QWidget):
 
         tb = QHBoxLayout(self.title_bar)
         tb.setContentsMargins(6, 2, 4, 2)
+        self._tag_chip = QLabel(self.title_bar)
+        self._tag_chip.setObjectName("tagChip")
+        self._tag_chip.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._tag_chip.mousePressEvent = self._edit_tags  # type: ignore[method-assign]
+        tb.addWidget(self._tag_chip)
         for b in (self.btn_copy, self.btn_lock, self.btn_compact):
             tb.addWidget(b)
         tb.addStretch()
         for b in (self.btn_pin, self.btn_close):
             tb.addWidget(b)
+
+        self.checklist_widget = QListWidget(self)
+        self.checklist_widget.setObjectName("checklistWidget")
+        self.checklist_widget.hide()
+        self.checklist_widget.itemChanged.connect(self._on_checklist_item_changed)
 
         self.editor = QTextEdit(self)
         self.editor.setAcceptRichText(False)
@@ -209,6 +232,7 @@ class NoteWindow(QWidget):
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(0)
         lo.addWidget(self.title_bar)
+        lo.addWidget(self.checklist_widget)
         lo.addWidget(self.editor, 1)
         lo.addWidget(self.colour_row)
         lo.addWidget(self.meta_row)
@@ -228,8 +252,155 @@ class NoteWindow(QWidget):
         for btn in (self.btn_copy, self.btn_lock, self.btn_compact, self.btn_pin, self.btn_close):
             btn.setStyleSheet(title_button_stylesheet(size=24))
 
-    def _real_content(self) -> str:
+    def get_content(self) -> str:
+        if self.note_data.get("checklist"):
+            return self._checklist_to_text()
         return self.editor.toPlainText()
+
+    def _checklist_to_text(self) -> str:
+        lines: list[str] = []
+        for i in range(self.checklist_widget.count()):
+            item = self.checklist_widget.item(i)
+            if item is None:
+                continue
+            mark = "x" if item.checkState() == Qt.CheckState.Checked else " "
+            text = item.text().strip()
+            lines.append(f"- [{mark}] {text}")
+        return "\n".join(lines)
+
+    def _text_to_checklist(self, content: str) -> None:
+        self._checklist_syncing = True
+        try:
+            self.checklist_widget.clear()
+            for checked, text in parse_checklist(content):
+                item = QListWidgetItem(text)
+                item.setFlags(
+                    item.flags()
+                    | Qt.ItemFlag.ItemIsUserCheckable
+                    | Qt.ItemFlag.ItemIsEnabled
+                )
+                item.setCheckState(
+                    Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+                )
+                font = item.font()
+                font.setStrikeOut(checked)
+                item.setFont(font)
+                self.checklist_widget.addItem(item)
+        finally:
+            self._checklist_syncing = False
+
+    def _on_checklist_item_changed(self, item: QListWidgetItem) -> None:
+        if self._checklist_syncing:
+            return
+        checked = item.checkState() == Qt.CheckState.Checked
+        font = item.font()
+        font.setStrikeOut(checked)
+        item.setFont(font)
+        self._update_ts()
+        self._save_timer.start()
+
+    def _set_checklist_mode(self, on: bool) -> None:
+        if self.note_data.get("checklist") == on:
+            return
+        if on:
+            content = self.editor.toPlainText()
+            if not content_has_checklist_items(content) and content.strip():
+                content = "\n".join(f"- [ ] {line}" for line in content.splitlines())
+            self.note_data["content"] = content
+            self._text_to_checklist(content)
+            self.editor.hide()
+            self.checklist_widget.show()
+        else:
+            self.note_data["content"] = self._checklist_to_text()
+            self.editor.setPlainText(self.note_data["content"])
+            self.checklist_widget.hide()
+            self.editor.show()
+        self.note_data["checklist"] = on
+        self._update_ts()
+        self._persist()
+
+    def _toggle_checklist_mode(self) -> None:
+        self._set_checklist_mode(not self.note_data.get("checklist", False))
+
+    def _add_checklist_item(self) -> None:
+        text, ok = QInputDialog.getText(self, "Add item", "Item text:")
+        if not ok or not text.strip():
+            return
+        item = QListWidgetItem(text.strip())
+        item.setFlags(
+            item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
+        )
+        item.setCheckState(Qt.CheckState.Unchecked)
+        self.checklist_widget.addItem(item)
+        self._persist()
+
+    def _clear_completed_checklist(self) -> None:
+        if not self.note_data.get("checklist"):
+            return
+        self._checklist_syncing = True
+        try:
+            for i in range(self.checklist_widget.count() - 1, -1, -1):
+                item = self.checklist_widget.item(i)
+                if item and item.checkState() == Qt.CheckState.Checked:
+                    self.checklist_widget.takeItem(i)
+        finally:
+            self._checklist_syncing = False
+        self._persist()
+
+    def _update_tag_chip(self) -> None:
+        tags = self.note_data.get("tags", [])
+        if tags:
+            self._tag_chip.setText(f"#{tags[0]}")
+            self._tag_chip.setToolTip(", ".join(f"#{t}" for t in tags))
+            self._tag_chip.show()
+        else:
+            self._tag_chip.setText("")
+            self._tag_chip.hide()
+
+    def _edit_tags(self, _event=None) -> None:
+        current = ", ".join(self.note_data.get("tags", []))
+        text, ok = QInputDialog.getText(
+            self,
+            "Note tags",
+            "Tags (comma-separated):",
+            text=current,
+        )
+        if not ok:
+            return
+        self.note_data["tags"] = normalize_tags(
+            [part.strip() for part in text.split(",") if part.strip()]
+        )
+        self._update_tag_chip()
+        self._persist()
+
+    def set_reminder(self, iso: str | None) -> None:
+        self.note_data["reminder_at"] = iso
+        self._update_ts()
+        self._persist()
+
+    def _pick_reminder(self, when: datetime) -> None:
+        self.set_reminder(when.isoformat(timespec="seconds"))
+
+    def _clear_reminder_menu(self) -> None:
+        self.set_reminder(None)
+
+    def _custom_reminder(self) -> None:
+        text, ok = QInputDialog.getText(
+            self,
+            "Custom reminder",
+            "Date/time (YYYY-MM-DD HH:MM):",
+        )
+        if not ok or not text.strip():
+            return
+        try:
+            when = datetime.strptime(text.strip(), "%Y-%m-%d %H:%M")
+        except ValueError:
+            QMessageBox.warning(self, "Invalid date", "Use format YYYY-MM-DD HH:MM")
+            return
+        self._pick_reminder(when)
+
+    def _real_content(self) -> str:
+        return self.get_content()
 
     def _copy(self) -> None:
         cb = QApplication.clipboard()
@@ -293,7 +464,14 @@ class NoteWindow(QWidget):
         self.move(d.get("x", 200), d.get("y", 200))
         self._full_h = d.get("height", DEFAULT_NOTE_H)
         self.resize(d.get("width", DEFAULT_NOTE_W), self._full_h)
-        self.editor.setPlainText(d.get("content", ""))
+        content = d.get("content", "")
+        if d.get("checklist"):
+            self._text_to_checklist(content)
+            self.editor.hide()
+            self.checklist_widget.show()
+        else:
+            self.editor.setPlainText(content)
+        self._update_tag_chip()
         self.setWindowOpacity(d.get("opacity", 1.0))
         if d.get("compact", False):
             self._set_compact(True)
@@ -323,14 +501,35 @@ class NoteWindow(QWidget):
 
     def _update_ts(self) -> None:
         mod = self.note_data.get("modified_at", "")
+        reminder = self.note_data.get("reminder_at")
+        reminder_txt = ""
+        if reminder:
+            overdue = ReminderService.is_overdue(reminder)
+            prefix = "Overdue" if overdue else "Reminder"
+            reminder_txt = (
+                f"  \u00B7  {prefix}: {ReminderService.format_reminder(reminder)}"
+            )
         if is_private(self.note_data) and not self._revealed:
             self.lbl_ts.setText(
-                f"Private  \u00B7  Modified: {fmt_dt(mod)}" if mod else "Private"
+                f"Private{reminder_txt}  \u00B7  Modified: {fmt_dt(mod)}"
+                if mod
+                else f"Private{reminder_txt}"
             )
             return
-        c = len(self.editor.toPlainText())
+        c = len(self.get_content())
+        if self.note_data.get("checklist"):
+            done, total = checklist_progress(self.get_content())
+            prog = f"  \u00B7  {done}/{total} done" if total else ""
+            self.lbl_ts.setText(
+                f"{c} chars{prog}{reminder_txt}  \u00B7  Modified: {fmt_dt(mod)}"
+                if mod
+                else f"{c} chars{prog}{reminder_txt}"
+            )
+            return
         self.lbl_ts.setText(
-            f"{c} chars  \u00B7  Modified: {fmt_dt(mod)}" if mod else f"{c} chars"
+            f"{c} chars{reminder_txt}  \u00B7  Modified: {fmt_dt(mod)}"
+            if mod
+            else f"{c} chars{reminder_txt}"
         )
 
     def contextMenuEvent(self, e) -> None:
@@ -343,6 +542,24 @@ class NoteWindow(QWidget):
             lambda: self.request_duplicate.emit(self.note_id)
         )
         m.addAction("\U0001F4CB  Copy to Clipboard").triggered.connect(self._copy)
+        m.addSeparator()
+        cl = m.addAction("\u2611  Checklist mode")
+        cl.setCheckable(True)
+        cl.setChecked(self.note_data.get("checklist", False))
+        cl.triggered.connect(self._toggle_checklist_mode)
+        if self.note_data.get("checklist"):
+            m.addAction("Clear completed").triggered.connect(self._clear_completed_checklist)
+            m.addAction("Add checklist item\u2026").triggered.connect(self._add_checklist_item)
+        m.addAction("\U0001F3F7  Edit tags\u2026").triggered.connect(self._edit_tags)
+        rm = m.addMenu("\u23F0  Remind me\u2026")
+        for label, when in ReminderService.reminder_presets():
+            rm.addAction(label).triggered.connect(
+                lambda _checked=False, w=when: self._pick_reminder(w)
+            )
+        rm.addAction("Custom\u2026").triggered.connect(self._custom_reminder)
+        if self.note_data.get("reminder_at"):
+            rm.addSeparator()
+            rm.addAction("Clear reminder").triggered.connect(self._clear_reminder_menu)
         m.addSeparator()
         priv = m.addAction("\U0001F512  Make Private")
         priv.setCheckable(True)
@@ -476,7 +693,7 @@ class NoteWindow(QWidget):
         self._save_timer.start()
 
     def _persist(self) -> None:
-        c = self.editor.toPlainText()
+        c = self.get_content()
         if c != self.note_data.get("content", ""):
             self.note_data["modified_at"] = datetime.now().isoformat(timespec="seconds")
         self.note_data.update(
@@ -643,15 +860,21 @@ class NoteWindow(QWidget):
             if not self.note_data.get("compact", False):
                 self._full_h = self.height()
             self.editor.hide()
+            self.checklist_widget.hide()
             self.colour_row.hide()
             self.meta_row.hide()
             self.setFixedHeight(self.TB + 4)
             set_button_icon(self.btn_compact, "expand", 16)
             self.btn_compact.setToolTip("Expand")
         else:
-            self.editor.show()
             self.colour_row.show()
             self.meta_row.show()
+            if self.note_data.get("checklist"):
+                self.checklist_widget.show()
+                self.editor.hide()
+            else:
+                self.editor.show()
+                self.checklist_widget.hide()
             self.setMinimumHeight(60)
             self.setMaximumHeight(16777215)
             self.resize(self.width(), self._full_h)
@@ -661,7 +884,7 @@ class NoteWindow(QWidget):
             self.btn_compact.setToolTip("Compact")
 
     def _hide_note(self) -> None:
-        if not self.editor.toPlainText().strip():
+        if not self.get_content().strip():
             self.request_delete.emit(self.note_id)
             return
         self.note_data["visible"] = False
@@ -670,7 +893,7 @@ class NoteWindow(QWidget):
 
     def show_note(self) -> None:
         self.note_data["visible"] = True
-        if self.editor.toPlainText().strip():
+        if self.get_content().strip():
             self._persist()
         self.show()
         self.raise_()

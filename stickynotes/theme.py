@@ -241,7 +241,9 @@ def dock_note_indicator_stylesheet(
     tb: str,
     *,
     visible: bool = True,
+    overdue: bool = False,
 ) -> str:
+    border = "#E53935" if overdue else tb
     dot = (
         "DockNoteIndicator::after { }"
         if not visible
@@ -250,11 +252,11 @@ def dock_note_indicator_stylesheet(
     return f"""
         DockNoteIndicator {{
             background:{bg};
-            border:1px solid {tb};
+            border:2px solid {border};
             border-radius:{RADIUS_SM}px;
         }}
         DockNoteIndicator:hover {{
-            border:1px solid rgba(255,255,255,0.35);
+            border:2px solid rgba(255,255,255,0.35);
             background:{tb};
         }}
         {dot}

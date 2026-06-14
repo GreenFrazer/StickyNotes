@@ -27,10 +27,17 @@ def _minimal_manager(
     mgr.docks = [dock]
     mgr._pending_note_updates = set()
     mgr._notes_with_content = set()
+    mgr._active_tag_filter = ""
+    mgr._dark = False
     mgr._dock_refresh_timer = QTimer()
     mgr._dock_refresh_timer.setSingleShot(True)
     mgr._dock_refresh_timer.setInterval(AppManager.DOCK_REFRESH_MS)
     mgr._dock_refresh_timer.timeout.connect(mgr._refresh_all_docks)
+
+    def _all_known_tags() -> list[str]:
+        return []
+
+    mgr._all_known_tags = _all_known_tags
     return mgr
 
 

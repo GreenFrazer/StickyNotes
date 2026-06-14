@@ -25,7 +25,8 @@ def dock(qapp, qtbot) -> DockWidget:
         screen_geo=QRect(0, 0, 1920, 1080),
         content_getter=lambda _nid: "",
     )
-    qtbot.addWidget(d)
+    d._poll.stop()
+    d._hide_tmr.stop()
     yield d
     d.destroy_dock()
 

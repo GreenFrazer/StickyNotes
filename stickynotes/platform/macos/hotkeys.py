@@ -20,6 +20,7 @@ class MacOSHotkeys:
         self._pressed: set[str] = set()
         self._new_armed = False
         self._hide_armed = False
+        self._search_armed = False
         self._warned = False
 
     def start(self) -> None:
@@ -43,6 +44,9 @@ class MacOSHotkeys:
             elif kid in ("h", "H") and not self._hide_armed:
                 self._hide_armed = True
                 self._invoke(self._mgr.hide_all_notes)
+            elif kid in ("f", "F") and not self._search_armed:
+                self._search_armed = True
+                self._invoke(self._mgr.open_search)
 
         def on_release(key) -> None:
             kid = self._key_id(key)
@@ -51,6 +55,8 @@ class MacOSHotkeys:
                 self._new_armed = False
             if kid in ("h", "H"):
                 self._hide_armed = False
+            if kid in ("f", "F"):
+                self._search_armed = False
 
         try:
             self._listener = keyboard.Listener(
@@ -66,7 +72,8 @@ class MacOSHotkeys:
                     "Open System Settings → Privacy & Security → Accessibility "
                     "and enable Sticky Notes.\n\n"
                     "Shortcuts: Cmd+Shift+N / Ctrl+Shift+N (new note), "
-                    "Cmd+Shift+H / Ctrl+Shift+H (hide all)."
+                    "Cmd+Shift+H / Ctrl+Shift+H (hide all), "
+                    "Cmd+Shift+F / Ctrl+Shift+F (search)."
                 )
 
     def stop(self) -> None:
