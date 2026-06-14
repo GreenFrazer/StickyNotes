@@ -148,6 +148,7 @@ class NoteWindow(QWidget):
         self._checklist_syncing = False
         self._checklist_editing_item: QListWidgetItem | None = None
         self._track_user_resize = False
+        self._end_edit_pending = False
         self._build_ui()
         self._apply_data()
         self._apply_style()
@@ -502,7 +503,6 @@ class NoteWindow(QWidget):
             body_have = self.height() - self._chrome_height()
             if body_need > body_have:
                 self.resize(self.width(), self.height() + (body_need - body_have))
-            self._full_h = max(self._full_h, self.height())
         finally:
             self._auto_resizing = False
 
@@ -857,7 +857,6 @@ class NoteWindow(QWidget):
         self._drag_on = False
         self.title_bar.releaseMouse()
         self.title_bar.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.note_data["user_resized"] = True
         self._persist()
 
     def mouseMoveEvent(self, e) -> None:
@@ -980,12 +979,27 @@ class NoteWindow(QWidget):
         self._editing = True
         self._expand_timer.start()
 
-    def _deferred_end_editing(self) -> None:
+    def _editing_focus_within_note(self) -> bool:
+        if self.editor.hasFocus():
+            return True
+        checklist_editor = self._checklist_editor_line_edit()
+        return checklist_editor is not None and checklist_editor.hasFocus()
+
+    def _deferred_end_editing(self, *, _retry: int = 0) -> None:
         if self._drag_on:
+            self._end_edit_pending = False
             return
-        fw = QApplication.focusWidget()
-        if fw is not None and self.isAncestorOf(fw):
+        if self._editing_focus_within_note():
+            if _retry < 2:
+                delay = 0 if _retry == 0 else 50
+                QTimer.singleShot(
+                    delay,
+                    lambda: self._deferred_end_editing(_retry=_retry + 1),
+                )
+            else:
+                self._end_edit_pending = False
             return
+        self._end_edit_pending = False
         self._expand_timer.stop()
         self._editing = False
         self._collapse_to_rest()
@@ -1072,7 +1086,9 @@ class NoteWindow(QWidget):
             ):
                 self._begin_editing_expand()
             elif obj is self.editor and event.type() == QEvent.Type.FocusOut:
-                QTimer.singleShot(0, self._deferred_end_editing)
+                if not self._end_edit_pending:
+                    self._end_edit_pending = True
+                    QTimer.singleShot(0, self._deferred_end_editing)
         return super().eventFilter(obj, event)
 
     def _set_opacity(self, v: float) -> None:

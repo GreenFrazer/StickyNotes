@@ -72,6 +72,33 @@ def test_collapse_on_focus_loss(expand_note: NoteWindow, qtbot) -> None:
 
     _simulate_focus_loss(w, qtbot)
     assert w.height() == REST_H, "focus loss should collapse note to rest height"
+    assert w.note_data.get("user_resized") is not True
+
+
+def test_collapse_after_title_bar_drag(expand_note: NoteWindow, qtbot) -> None:
+    """Repositioning a note must not block later collapse."""
+    w = expand_note
+    w._begin_window_drag(w.mapToGlobal(QPointF(10, 10).toPoint()))
+    w._end_window_drag()
+    assert w.note_data.get("user_resized") is not True
+
+    _viewport_click(w)
+    qtbot.wait(100)
+    assert w.height() > REST_H
+    _simulate_focus_loss(w, qtbot)
+    assert w.height() == REST_H
+
+
+def test_collapse_works_on_repeated_edit_sessions(
+    expand_note: NoteWindow, qtbot
+) -> None:
+    w = expand_note
+    for _ in range(2):
+        _viewport_click(w)
+        qtbot.wait(100)
+        assert w.height() > REST_H
+        _simulate_focus_loss(w, qtbot)
+        assert w.height() == REST_H
 
 
 def test_active_window_focus_does_not_expand(expand_note: NoteWindow, qtbot) -> None:
