@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor, QFocusEvent, QFontMetrics
+from PyQt6.QtGui import QColor, QFontMetrics, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QGraphicsDropShadowEffect,
@@ -41,6 +42,8 @@ from stickynotes.ui.icons import set_button_icon
 
 if TYPE_CHECKING:
     from stickynotes.storage import StorageManager
+
+logger = logging.getLogger(__name__)
 
 
 class NoteWindow(QWidget):
@@ -151,6 +154,8 @@ class NoteWindow(QWidget):
         self.editor.setObjectName("noteEditor")
         self.title_bar.installEventFilter(self)
         self.editor.installEventFilter(self)
+        # Clicks land on the viewport, not the QTextEdit widget itself.
+        self.editor.viewport().installEventFilter(self)
         self._private_overlay = QWidget(self.editor)
         self._private_overlay.setObjectName("privateOverlay")
         self._private_overlay.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -509,31 +514,20 @@ class NoteWindow(QWidget):
         sb = self.editor.verticalScrollBar()
         return sb is not None and sb.maximum() > 0
 
-    def _cursor_over_editor(self) -> bool:
-        return self.editor.rect().contains(
-            self.editor.mapFromGlobal(QCursor.pos())
-        )
+    def _begin_editing_expand(self) -> None:
+        if self._drag_on or self.note_data.get("compact"):
+            return
+        self._editing = True
+        QTimer.singleShot(0, self._expand_for_editing)
 
-    def _should_expand_on_focus_in(self, event: QFocusEvent) -> bool:
+    def _deferred_end_editing(self) -> None:
         if self._drag_on:
-            return False
-        reason = event.reason()
-        if reason in (
-            Qt.FocusReason.MouseFocusReason,
-            Qt.FocusReason.TabFocusReason,
-            Qt.FocusReason.BacktabFocusReason,
-            Qt.FocusReason.ShortcutFocusReason,
-        ):
-            return True
-        # macOS often delivers ActiveWindowFocusReason on first click into an
-        # inactive note; dock hover uses the same reason but the cursor stays
-        # on the dock, not over the editor.
-        if reason == Qt.FocusReason.ActiveWindowFocusReason:
-            return bool(
-                QApplication.mouseButtons() & Qt.MouseButton.LeftButton
-                and self._cursor_over_editor()
-            )
-        return False
+            return
+        fw = QApplication.focusWidget()
+        if fw is not None and self.isAncestorOf(fw):
+            return
+        self._editing = False
+        self._collapse_to_rest()
 
     def _expand_for_editing(self) -> None:
         if (
@@ -562,9 +556,16 @@ class NoteWindow(QWidget):
         self.resize(self.width(), self._full_h)
 
     def eventFilter(self, obj, event) -> bool:
+        try:
+            return self._dispatch_event_filter(obj, event)
+        except Exception:
+            logger.exception("note %s eventFilter error", self.note_id)
+            return False
+
+    def _dispatch_event_filter(self, obj, event) -> bool:
         if obj is self.title_bar:
             et = event.type()
-            if et == QEvent.Type.MouseButtonPress:
+            if et == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
                 if (
                     event.button() == Qt.MouseButton.LeftButton
                     and self._title_bar_is_draggable_at(event.pos())
@@ -572,17 +573,19 @@ class NoteWindow(QWidget):
                     self._begin_window_drag(event.globalPosition().toPoint())
                     return True
             elif self._drag_on:
-                if et == QEvent.Type.MouseMove:
+                if et == QEvent.Type.MouseMove and isinstance(event, QMouseEvent):
                     self._move_window_drag(event.globalPosition().toPoint())
                     return True
                 if (
                     et == QEvent.Type.MouseButtonRelease
+                    and isinstance(event, QMouseEvent)
                     and event.button() == Qt.MouseButton.LeftButton
                 ):
                     self._end_window_drag()
                     return True
 
-        if self._drag_on and obj is self.editor:
+        editor_targets = (self.editor, self.editor.viewport())
+        if self._drag_on and obj in editor_targets:
             if event.type() in (
                 QEvent.Type.MouseButtonPress,
                 QEvent.Type.MouseButtonRelease,
@@ -594,26 +597,17 @@ class NoteWindow(QWidget):
             ):
                 return True
 
-        if obj is self.editor and not self.note_data.get("compact"):
-            if event.type() == QEvent.Type.MouseButtonPress:
-                if (
-                    event.button() == Qt.MouseButton.LeftButton
-                    and not self._drag_on
-                ):
-                    self._editing = True
-                    QTimer.singleShot(0, self._expand_for_editing)
-            elif event.type() == QEvent.Type.FocusIn:
-                if isinstance(event, QFocusEvent) and self._should_expand_on_focus_in(
-                    event
-                ):
-                    self._editing = True
-                    QTimer.singleShot(0, self._expand_for_editing)
-            elif event.type() == QEvent.Type.FocusOut:
-                fw = QApplication.focusWidget()
-                if fw is not None and self.isAncestorOf(fw):
-                    return super().eventFilter(obj, event)
-                self._editing = False
-                self._collapse_to_rest()
+        if not self.note_data.get("compact"):
+            if (
+                obj is self.editor.viewport()
+                and event.type() == QEvent.Type.MouseButtonPress
+                and isinstance(event, QMouseEvent)
+                and event.button() == Qt.MouseButton.LeftButton
+                and not self._drag_on
+            ):
+                self._begin_editing_expand()
+            elif obj is self.editor and event.type() == QEvent.Type.FocusOut:
+                QTimer.singleShot(0, self._deferred_end_editing)
         return super().eventFilter(obj, event)
 
     def _set_opacity(self, v: float) -> None:
