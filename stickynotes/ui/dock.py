@@ -668,7 +668,7 @@ class DockWidget(QWidget):
         )
         for sd in sorted_shortcuts:
             file_ind = DockFileIndicator(sd, self.ind_container)
-            file_ind.sig_click.connect(self.sig_shortcut_click.emit)
+            file_ind.sig_click.connect(self._on_file_click)
             file_ind.sig_hover_enter.connect(self._show_file_popup)
             file_ind.sig_hover_leave.connect(self._schedule_hide)
             file_ind.sig_remove.connect(self.sig_remove_shortcut.emit)
@@ -684,7 +684,7 @@ class DockWidget(QWidget):
         )
         for nd in sorted_n:
             ind = DockNoteIndicator(nd, self._content_getter, self.ind_container)
-            ind.sig_click.connect(self.sig_card_click.emit)
+            ind.sig_click.connect(self._on_note_click)
             ind.sig_hover_enter.connect(self._show_popup)
             ind.sig_hover_leave.connect(self._schedule_hide)
             self.ind_layout.addWidget(ind)
@@ -733,7 +733,7 @@ class DockWidget(QWidget):
         if not sd:
             return
         self._file_popup = DockFilePopup(dict(sd))
-        self._file_popup.clicked.connect(self.sig_shortcut_click.emit)
+        self._file_popup.clicked.connect(self._on_file_click)
         pw, ph = self._file_popup.width(), self._file_popup.height()
         g = self._screen_geo
         if self._pos == "left":
@@ -770,7 +770,7 @@ class DockWidget(QWidget):
         if not nd:
             return
         self._popup = DockNotePopup(dict(nd), self._content_getter)
-        self._popup.clicked.connect(self.sig_card_click.emit)
+        self._popup.clicked.connect(self._on_note_click)
         pw, ph = self._popup.width(), self._popup.height()
         g = self._screen_geo
         if self._pos == "left":
@@ -793,8 +793,27 @@ class DockWidget(QWidget):
         self._popup.move(x, y)
         self._popup.show()
 
-    def _schedule_hide(self, nid: str) -> None:
+    def _schedule_hide(self, _id: str) -> None:
         self._popup_timer.start()
+
+    def _dismiss_popups(self) -> None:
+        self._popup_timer.stop()
+        if self._popup:
+            self._popup.close()
+            self._popup.deleteLater()
+            self._popup = None
+        if self._file_popup:
+            self._file_popup.close()
+            self._file_popup.deleteLater()
+            self._file_popup = None
+
+    def _on_file_click(self, sid: str) -> None:
+        self._dismiss_popups()
+        self.sig_shortcut_click.emit(sid)
+
+    def _on_note_click(self, nid: str) -> None:
+        self._dismiss_popups()
+        self.sig_card_click.emit(nid)
 
     def _hide_popup(self) -> None:
         if self._popup:
@@ -882,6 +901,7 @@ class DockWidget(QWidget):
             self._hide_tmr.start()
             return
         self._shown = False
+        self._dismiss_popups()
         self._anim_to(self._hid_pos())
 
     def _anim_to(self, tgt: QPoint) -> None:
@@ -941,11 +961,5 @@ class DockWidget(QWidget):
                 pass
         self._poll.stop()
         self._hide_tmr.stop()
-        self._popup_timer.stop()
-        if self._popup:
-            self._popup.close()
-            self._popup = None
-        if self._file_popup:
-            self._file_popup.close()
-            self._file_popup = None
+        self._dismiss_popups()
         self.close()
