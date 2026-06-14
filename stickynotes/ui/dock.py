@@ -447,6 +447,9 @@ class DockWidget(QWidget):
     TRIGGER = 4
     ANIM_MS = 200
     HIDE_MS = 600
+    POLL_FAST_MS = 50
+    POLL_SLOW_MS = 400
+    POLL_NEAR_MS = 120
 
     _SCROLL_CSS = dock_scroll_stylesheet()
 
@@ -490,7 +493,7 @@ class DockWidget(QWidget):
         self._build_ui()
         self._apply_style()
         self._poll = QTimer(self)
-        self._poll.setInterval(50)
+        self._poll.setInterval(self.POLL_FAST_MS)
         self._poll.timeout.connect(self._poll_mouse)
         self._poll.start()
         self._hide_tmr = QTimer(self)
@@ -704,7 +707,29 @@ class DockWidget(QWidget):
             if self._popup and self._popup.note_id == nid:
                 self._popup.update_content(note_data)
         else:
-            self.refresh_cards(self._notes_data, self._shortcuts_data)
+            self._insert_note_indicator(nid, note_data)
+
+    def _note_layout_index(self, indicator_index: int) -> int:
+        idx = len(self._file_indicators)
+        if self._file_indicators:
+            idx += 1
+        return idx + indicator_index
+
+    def _insert_note_indicator(self, nid: str, note_data: dict[str, Any]) -> None:
+        ind = DockNoteIndicator(note_data, self._content_getter, self.ind_container)
+        ind.sig_click.connect(self._on_note_click)
+        ind.sig_hover_enter.connect(self._show_popup)
+        ind.sig_hover_leave.connect(self._schedule_hide)
+        mod = note_data.get("modified_at", "")
+        insert_at = len(self._indicators)
+        for i, existing in enumerate(self._indicators):
+            em = self._notes_data.get(existing.note_id, {}).get("modified_at", "")
+            if mod > em:
+                insert_at = i
+                break
+        self._indicators.insert(insert_at, ind)
+        self._indicator_map[nid] = ind
+        self.ind_layout.insertWidget(self._note_layout_index(insert_at), ind)
 
     def remove_note_card(self, nid: str) -> None:
         self._notes_data.pop(nid, None)
@@ -914,6 +939,28 @@ class DockWidget(QWidget):
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._anim.start()
 
+    def _cursor_near_trigger(self, c: QPoint) -> bool:
+        g = self._screen_geo
+        margin = 48
+        if self._pos == "top":
+            return (
+                g.top() - margin <= c.y() <= g.top() + margin
+                and g.left() <= c.x() <= g.right()
+            )
+        if self._pos == "left":
+            return (
+                g.left() - margin <= c.x() <= g.left() + margin
+                and g.top() <= c.y() <= g.bottom()
+            )
+        return (
+            g.right() - margin <= c.x() <= g.right() + margin
+            and g.top() <= c.y() <= g.bottom()
+        )
+
+    def _set_poll_interval(self, ms: int) -> None:
+        if self._poll.interval() != ms:
+            self._poll.setInterval(ms)
+
     def _poll_mouse(self) -> None:
         c = QCursor.pos()
         g = self._screen_geo
@@ -939,6 +986,12 @@ class DockWidget(QWidget):
             )
             if not popup_hover and not self._hide_tmr.isActive():
                 self._hide_tmr.start()
+        if hit or self._shown:
+            self._set_poll_interval(self.POLL_FAST_MS)
+        elif self._cursor_near_trigger(c):
+            self._set_poll_interval(self.POLL_NEAR_MS)
+        else:
+            self._set_poll_interval(self.POLL_SLOW_MS)
 
     def showEvent(self, e) -> None:
         super().showEvent(e)

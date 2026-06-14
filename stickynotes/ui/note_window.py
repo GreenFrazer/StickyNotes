@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFontMetrics, QMouseEvent
+from PyQt6.QtGui import QColor, QFocusEvent, QFontMetrics, QMouseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QGraphicsDropShadowEffect,
@@ -75,6 +75,10 @@ class NoteWindow(QWidget):
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
         self._save_timer.timeout.connect(self._persist)
+        self._expand_timer = QTimer(self)
+        self._expand_timer.setSingleShot(True)
+        self._expand_timer.setInterval(24)
+        self._expand_timer.timeout.connect(self._expand_for_editing)
         self._copy_revert = QTimer(self)
         self._copy_revert.setSingleShot(True)
         self._copy_revert.setInterval(1000)
@@ -468,7 +472,7 @@ class NoteWindow(QWidget):
             and not self.note_data.get("compact")
             and not self._drag_on
         ):
-            self._expand_for_editing()
+            self._expand_timer.start()
         self._save_timer.start()
 
     def _persist(self) -> None:
@@ -518,7 +522,7 @@ class NoteWindow(QWidget):
         if self._drag_on or self.note_data.get("compact"):
             return
         self._editing = True
-        QTimer.singleShot(0, self._expand_for_editing)
+        self._expand_timer.start()
 
     def _deferred_end_editing(self) -> None:
         if self._drag_on:
@@ -606,6 +610,13 @@ class NoteWindow(QWidget):
                 and not self._drag_on
             ):
                 self._begin_editing_expand()
+            elif obj is self.editor and event.type() == QEvent.Type.FocusIn:
+                if (
+                    isinstance(event, QFocusEvent)
+                    and event.reason() == Qt.FocusReason.ActiveWindowFocusReason
+                    and not self._drag_on
+                ):
+                    self._begin_editing_expand()
             elif obj is self.editor and event.type() == QEvent.Type.FocusOut:
                 QTimer.singleShot(0, self._deferred_end_editing)
         return super().eventFilter(obj, event)

@@ -1,1 +1,3 @@
-dev-only; install with: pip install pytest
+# dev-only; install with: pip install -r requirements-dev.txt
+pytest
+pytest-qt

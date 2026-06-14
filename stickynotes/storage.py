@@ -41,6 +41,7 @@ class StorageManager:
             "settings": default_settings(),
             "dock_shortcuts": [],
         }
+        self._saves_since_backup = 0
         self.load()
 
     @staticmethod
@@ -144,14 +145,25 @@ class StorageManager:
 
     def save(self) -> None:
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
+        serialized = json.dumps(self._data, indent=2, ensure_ascii=False)
+        if self.filepath.exists():
+            try:
+                if self.filepath.read_text(encoding="utf-8") == serialized:
+                    return
+            except OSError:
+                pass
         tmp = self.filepath.with_suffix(".json.tmp")
         try:
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self._data, f, indent=2, ensure_ascii=False)
+                f.write(serialized)
                 f.flush()
                 os.fsync(f.fileno())
-            if self.filepath.exists():
+            self._saves_since_backup += 1
+            if self.filepath.exists() and (
+                not self.backup_path.exists() or self._saves_since_backup >= 5
+            ):
                 shutil.copy2(self.filepath, self.backup_path)
+                self._saves_since_backup = 0
             os.replace(tmp, self.filepath)
         except OSError:
             if tmp.exists():
@@ -172,7 +184,11 @@ class StorageManager:
         if not data.get("content", "").strip():
             self.delete_note(nid)
             return
-        self._data.setdefault("notes", {})[nid] = data
+        stored = dict(data)
+        existing = self._data.get("notes", {}).get(nid)
+        if existing == stored:
+            return
+        self._data.setdefault("notes", {})[nid] = stored
         self.save()
 
     def delete_note(self, nid: str) -> None:

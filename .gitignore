@@ -17,6 +17,7 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+benchmarks/after.json
 
 # Build / packaging artifacts
 build/

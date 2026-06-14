@@ -47,6 +47,7 @@ class AppManager:
         self._dock_refresh_timer.setInterval(self.DOCK_REFRESH_MS)
         self._dock_refresh_timer.timeout.connect(self._refresh_all_docks)
         self._pending_note_updates: set[str] = set()
+        self._notes_with_content: set[str] = set()
 
         self.tray = QSystemTrayIcon(self._ico(), self.app)
         tm = QMenu()
@@ -76,6 +77,8 @@ class AppManager:
         if saved:
             for nd in saved.values():
                 self._spawn(nd)
+                if nd.get("content", "").strip():
+                    self._notes_with_content.add(nd["id"])
         else:
             self.create_note()
         self._refresh_all_docks()
@@ -95,6 +98,22 @@ class AppManager:
 
     def _create_docks(self) -> None:
         for dock in self.docks:
+            for sig in (
+                dock.sig_new_note,
+                dock.sig_show_all,
+                dock.sig_hide_all,
+                dock.sig_settings,
+                dock.sig_exit,
+                dock.sig_card_click,
+                dock.sig_shortcut_click,
+                dock.sig_pin_file,
+                dock.sig_files_dropped,
+                dock.sig_remove_shortcut,
+            ):
+                try:
+                    sig.disconnect()
+                except TypeError:
+                    pass
             dock.destroy_dock()
             dock.deleteLater()
         self.docks.clear()
@@ -132,15 +151,6 @@ class AppManager:
     def _refresh_all_docks(self) -> None:
         notes = self.storage.get_all_notes()
         shortcuts = self.storage.get_dock_shortcuts()
-        for nid in list(self._pending_note_updates):
-            nd = notes.get(nid)
-            for dock in self.docks:
-                if nd:
-                    live = dict(nd)
-                    live["content"] = self.get_display_content(nid)
-                    dock.update_note_card(nid, live)
-                else:
-                    dock.remove_note_card(nid)
         self._pending_note_updates.clear()
         for dock in self.docks:
             enriched = {}
@@ -153,12 +163,6 @@ class AppManager:
     def _schedule_dock_refresh(self, nid: str | None = None) -> None:
         if nid:
             self._pending_note_updates.add(nid)
-            note = self.notes.get(nid)
-            if note:
-                nd = dict(self.storage.get_all_notes().get(nid, note.note_data))
-                nd["content"] = self.get_display_content(nid)
-                for dock in self.docks:
-                    dock.update_note_card(nid, nd)
         self._dock_refresh_timer.start()
 
     @staticmethod
@@ -178,8 +182,18 @@ class AppManager:
         return app_icon()
 
     def _tt(self) -> None:
-        c = len([n for n in self.notes.values() if n.editor.toPlainText().strip()])
+        c = len(self._notes_with_content)
         self.tray.setToolTip(f"Sticky Notes ({c} note{'s' if c != 1 else ''})")
+
+    def _track_note_content(self, nid: str) -> None:
+        n = self.notes.get(nid)
+        if not n:
+            return
+        has = bool(n.editor.toPlainText().strip())
+        if has:
+            self._notes_with_content.add(nid)
+        else:
+            self._notes_with_content.discard(nid)
 
     def _centre(self) -> tuple[int, int]:
         scr = QGuiApplication.primaryScreen()
@@ -201,6 +215,7 @@ class AppManager:
         nd["width"] = w
         nd["height"] = h
         self._spawn(nd)
+        self._track_note_content(nd["id"])
         self._tt()
         self._refresh_all_docks()
 
@@ -216,6 +231,7 @@ class AppManager:
         n = self.notes.pop(nid, None)
         if n:
             n.close()
+        self._notes_with_content.discard(nid)
         self.storage.delete_note(nid)
         self._tt()
         for dock in self.docks:
@@ -238,6 +254,7 @@ class AppManager:
         nd["user_resized"] = False
         self._spawn(nd)
         self.notes[nd["id"]]._persist()
+        self._track_note_content(nd["id"])
         self._tt()
         self._refresh_all_docks()
 
@@ -335,6 +352,7 @@ class AppManager:
         self._refresh_all_docks()
 
     def _on_changed(self, nid: str) -> None:
+        self._track_note_content(nid)
         self._tt()
         self._schedule_dock_refresh(nid)
 

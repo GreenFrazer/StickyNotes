@@ -140,6 +140,20 @@ pip install pytest
 python -m pytest tests/ -v
 ```
 
+## Benchmarks
+
+Before/after performance workflow (dock, storage, note expand, etc.):
+
+| Step | Command |
+|------|---------|
+| Dev deps | `pip install -r requirements-dev.txt` (or `pip install pytest pytest-qt`) |
+| Tests | `python3 -m pytest tests/ -v` |
+| Baseline | `python3 scripts/run_benchmarks.py --save benchmarks/baseline.json` |
+| After changes | `python3 scripts/run_benchmarks.py --save benchmarks/after.json` |
+| Compare | `python3 scripts/compare_benchmarks.py benchmarks/baseline.json benchmarks/after.json` |
+
+Comparison prints a summary to the terminal and writes **`benchmarks/report.md`** by default (override with `--report <path>`). `benchmarks/after.json` is gitignored; commit `benchmarks/baseline.json` when sharing a reference point.
+
 ## Technology
 
 | Component | Technology |
