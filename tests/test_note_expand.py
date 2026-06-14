@@ -109,3 +109,84 @@ def test_show_note_focus_regain_does_not_reexpand(
     w.show_note()
     qtbot.wait(100)
     assert w.height() == REST_H, "show_note/focus regain should not re-expand"
+
+
+def test_typing_without_viewport_click_expands(qapp, qtbot) -> None:
+    """Typing with editor focus should grow the note even without a viewport click."""
+    nd = StorageManager.default_note()
+    nd["content"] = "Short"
+    nd["height"] = REST_H
+    nd["width"] = 240
+    w = NoteWindow(nd, StorageManager())
+    qtbot.addWidget(w)
+    w.show()
+    w.editor.setFocus()
+    qtbot.wait(50)
+    h0 = w.height()
+    w.editor.setPlainText("Line one\nLine two\nLine three\nLine four\nLine five\n")
+    qtbot.wait(100)
+    assert w.height() > h0, "focused typing should expand note height"
+
+
+def test_user_resized_skips_collapse_on_focus_loss(
+    expand_note: NoteWindow, qtbot
+) -> None:
+    w = expand_note
+    w.note_data["user_resized"] = True
+    _viewport_click(w)
+    qtbot.wait(100)
+    expanded_h = w.height()
+    assert expanded_h > REST_H
+
+    _simulate_focus_loss(w, qtbot)
+    assert w.height() == expanded_h, "user-resized notes should not collapse"
+
+
+def test_user_resized_still_expands_when_typing(qapp, qtbot) -> None:
+    """Manual resize must not block growth when content needs more space."""
+    nd = StorageManager.default_note()
+    nd["content"] = "Short"
+    nd["height"] = REST_H
+    nd["width"] = 240
+    nd["user_resized"] = True
+    w = NoteWindow(nd, StorageManager())
+    qtbot.addWidget(w)
+    w.show()
+    w._full_h = REST_H
+    w.editor.setFocus()
+    qtbot.wait(50)
+    h0 = w.height()
+    w.editor.setPlainText("Line one\nLine two\nLine three\nLine four\nLine five\n")
+    qtbot.wait(100)
+    assert w.height() > h0, "user-resized notes should still expand for content"
+
+
+def test_enter_key_expands_incrementally(expand_note: NoteWindow, qtbot) -> None:
+    """Pressing Enter to add lines should grow the note without setPlainText."""
+    w = expand_note
+    w.editor.setFocus()
+    qtbot.wait(50)
+    h0 = w.height()
+    for _ in range(8):
+        qtbot.keyPress(w.editor, Qt.Key.Key_Return)
+        qtbot.wait(30)
+    assert w.height() > h0, "Enter key should expand note incrementally"
+
+
+def test_init_does_not_mark_user_resized(qapp, qtbot) -> None:
+    nd = StorageManager.default_note()
+    w = NoteWindow(nd, StorageManager())
+    qtbot.addWidget(w)
+    w.show()
+    qtbot.wait(50)
+    assert w.note_data.get("user_resized") is not True
+
+
+def test_auto_expand_does_not_mark_user_resized(expand_note: NoteWindow, qtbot) -> None:
+    w = expand_note
+    w.editor.setFocus()
+    qtbot.wait(50)
+    w.editor.setPlainText("Line one\nLine two\nLine three\nLine four\nLine five\n")
+    qtbot.wait(100)
+    assert w.height() > REST_H
+    assert w.note_data.get("user_resized") is not True

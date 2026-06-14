@@ -122,6 +122,46 @@ def test_checklist_height_tracks_item_count(qapp, qtbot, temp_paths) -> None:
     assert h3 > h2
 
 
+def test_checklist_window_grows_with_items(qapp, qtbot, temp_paths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    nd = StorageManager.default_note()
+    nd["checklist"] = True
+    nd["height"] = 180
+    w = NoteWindow(nd, storage)
+    qtbot.addWidget(w)
+    w.show()
+    qtbot.wait(50)
+
+    h0 = w.height()
+    for _ in range(5):
+        w._add_checklist_item()
+        qtbot.wait(50)
+
+    chrome = w._chrome_height()
+    body = w.height() - chrome
+    content = w.checklist_widget.height() + w.btn_add_checklist_item.height()
+    assert w.height() > h0, "checklist note should grow as items are added"
+    assert body >= content, "checklist body should fit all items without clipping"
+
+
+def test_user_resized_checklist_still_grows(qapp, qtbot, temp_paths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    nd = StorageManager.default_note()
+    nd["checklist"] = True
+    nd["height"] = 180
+    nd["user_resized"] = True
+    w = NoteWindow(nd, storage)
+    qtbot.addWidget(w)
+    w.show()
+    qtbot.wait(50)
+
+    h0 = w.height()
+    for _ in range(4):
+        w._add_checklist_item()
+        qtbot.wait(50)
+    assert w.height() > h0, "user-resized checklist should still grow with items"
+
+
 def test_add_item_button_adds_row(qapp, qtbot, temp_paths) -> None:
     storage = StorageManager(temp_paths, restore_prompt=lambda: False)
     nd = StorageManager.default_note()

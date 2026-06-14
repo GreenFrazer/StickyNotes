@@ -144,6 +144,7 @@ class NoteWindow(QWidget):
         self._copy_revert.timeout.connect(self._reset_copy_icon)
         self._checklist_syncing = False
         self._checklist_editing_item: QListWidgetItem | None = None
+        self._track_user_resize = False
         self._build_ui()
         self._apply_data()
         self._apply_style()
@@ -470,10 +471,26 @@ class NoteWindow(QWidget):
         row_h += self.checklist_widget.spacing() * max(0, count - 1)
         return max(40, row_h + 16)
 
+    def _checklist_window_height(self) -> int:
+        add_h = self.btn_add_checklist_item.sizeHint().height()
+        content_h = self._checklist_content_height() + add_h + 4
+        return self._chrome_height() + max(40, content_h)
+
     def _sync_checklist_height(self) -> None:
         if not self.note_data.get("checklist") or not self.checklist_body.isVisible():
             return
         self.checklist_widget.setFixedHeight(self._checklist_content_height())
+        if self.note_data.get("compact"):
+            return
+        target = max(self._full_h, self._checklist_window_height())
+        if target <= self.height():
+            return
+        self._auto_resizing = True
+        try:
+            self.resize(self.width(), target)
+            self._full_h = target
+        finally:
+            self._auto_resizing = False
 
     def _show_checklist_body(self) -> None:
         self.editor.hide()
@@ -645,22 +662,27 @@ class NoteWindow(QWidget):
         d = self.note_data
         self.move(d.get("x", 200), d.get("y", 200))
         self._full_h = d.get("height", DEFAULT_NOTE_H)
-        self.resize(d.get("width", DEFAULT_NOTE_W), self._full_h)
-        content = d.get("content", "")
-        if d.get("checklist"):
-            self._text_to_checklist(content)
-            self._show_checklist_body()
-        else:
-            self.editor.setPlainText(content)
-        self._update_tag_chip()
-        self.setWindowOpacity(d.get("opacity", 1.0))
-        if d.get("compact", False):
-            self._set_compact(True)
-        if is_private(d):
-            self._revealed = False
-        self._apply_private_state()
-        if d.get("visible", True):
-            self.show()
+        self._auto_resizing = True
+        try:
+            self.resize(d.get("width", DEFAULT_NOTE_W), self._full_h)
+            content = d.get("content", "")
+            if d.get("checklist"):
+                self._text_to_checklist(content)
+                self._show_checklist_body()
+            else:
+                self.editor.setPlainText(content)
+            self._update_tag_chip()
+            self.setWindowOpacity(d.get("opacity", 1.0))
+            if d.get("compact", False):
+                self._set_compact(True)
+            if is_private(d):
+                self._revealed = False
+            self._apply_private_state()
+            if d.get("visible", True):
+                self.show()
+        finally:
+            self._auto_resizing = False
+            self._track_user_resize = True
 
     def _apply_style(self) -> None:
         cn = self.note_data.get("colour", "yellow")
@@ -858,12 +880,13 @@ class NoteWindow(QWidget):
         if hasattr(self, "_private_overlay"):
             self._private_overlay.setGeometry(self.editor.rect())
         if (
-            not self.note_data.get("compact", False)
+            self._track_user_resize
+            and not self.note_data.get("compact", False)
             and not self._auto_resizing
             and not self._editing
         ):
             self._full_h = self.height()
-        self.note_data["user_resized"] = True
+            self.note_data["user_resized"] = True
         self._save_timer.start()
 
     def moveEvent(self, e) -> None:
@@ -873,10 +896,12 @@ class NoteWindow(QWidget):
     def _on_text(self) -> None:
         self._update_ts()
         if (
-            self._editing
+            self.editor.hasFocus()
+            and not self.note_data.get("checklist")
             and not self.note_data.get("compact")
             and not self._drag_on
         ):
+            self._editing = True
             self._expand_timer.start()
         self._save_timer.start()
 
@@ -920,6 +945,16 @@ class NoteWindow(QWidget):
         return self._chrome_height() + max(40, content_h)
 
     def _editor_content_overflows(self) -> bool:
+        doc = self.editor.document()
+        vw = self.editor.viewport().width()
+        if vw <= 1:
+            vw = max(1, self.editor.width() - 2 * self.editor.frameWidth())
+        doc.setTextWidth(max(1, vw))
+        pad = 16 + int(2 * doc.documentMargin())
+        content_h = int(doc.size().height()) + pad
+        available = self.height() - self._chrome_height()
+        if content_h > available:
+            return True
         sb = self.editor.verticalScrollBar()
         return sb is not None and sb.maximum() > 0
 
@@ -935,6 +970,7 @@ class NoteWindow(QWidget):
         fw = QApplication.focusWidget()
         if fw is not None and self.isAncestorOf(fw):
             return
+        self._expand_timer.stop()
         self._editing = False
         self._collapse_to_rest()
 
@@ -958,11 +994,15 @@ class NoteWindow(QWidget):
             self._auto_resizing = False
 
     def _collapse_to_rest(self) -> None:
-        if self.note_data.get("compact"):
+        if self.note_data.get("compact") or self.note_data.get("user_resized"):
             return
         if self.height() == self._full_h:
             return
-        self.resize(self.width(), self._full_h)
+        self._auto_resizing = True
+        try:
+            self.resize(self.width(), self._full_h)
+        finally:
+            self._auto_resizing = False
 
     def eventFilter(self, obj, event) -> bool:
         try:
@@ -1063,7 +1103,11 @@ class NoteWindow(QWidget):
                 self._hide_checklist_body()
             self.setMinimumHeight(60)
             self.setMaximumHeight(16777215)
-            self.resize(self.width(), self._full_h)
+            self._auto_resizing = True
+            try:
+                self.resize(self.width(), self._full_h)
+            finally:
+                self._auto_resizing = False
             self.setMinimumHeight(60)
             self.setMaximumHeight(16777215)
             set_button_icon(self.btn_compact, "compact", 16)
