@@ -14,6 +14,29 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def test_save_skips_write_when_data_unchanged(
+    temp_paths: FakePaths, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    note = StorageManager.default_note()
+    note["content"] = "Hello"
+    storage.set_note(note["id"], note)
+
+    mtime_first = temp_paths.data_file.stat().st_mtime
+    read_calls: list[Path] = []
+    original_read_text = Path.read_text
+
+    def track_read_text(self: Path, *args, **kwargs) -> str:
+        read_calls.append(self)
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", track_read_text)
+    storage.save()
+
+    assert read_calls == []
+    assert temp_paths.data_file.stat().st_mtime == mtime_first
+
+
 def test_save_creates_atomic_backup(temp_paths: FakePaths) -> None:
     storage = StorageManager(temp_paths, restore_prompt=lambda: False)
     note = StorageManager.default_note()
@@ -221,9 +244,6 @@ def test_add_and_remove_dock_shortcut(temp_paths: FakePaths, tmp_path: Path) -> 
     assert storage.get_dock_shortcuts() == []
     reloaded = json.loads(temp_paths.data_file.read_text(encoding="utf-8"))
     assert reloaded.get("dock_shortcuts", []) == []
-
-
-def test_save_includes_empty_dock_shortcuts_array(temp_paths: FakePaths) -> None:
     storage = StorageManager(temp_paths, restore_prompt=lambda: False)
     note = StorageManager.default_note()
     note["content"] = "Hello"

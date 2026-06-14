@@ -15,17 +15,8 @@ from PyQt6.QtWidgets import QApplication
 
 from stickynotes.app_manager import AppManager
 from stickynotes.storage import StorageManager
+from tests.benchmarks._timing import run_timed
 from tests.conftest import FakePaths
-
-
-def _scenario_result(name: str, scenario: str, elapsed_ms: float) -> dict:
-    return {
-        "name": name,
-        "scenario": scenario,
-        "median_ms": round(elapsed_ms, 4),
-        "p95_ms": round(elapsed_ms, 4),
-        "iterations": 1,
-    }
 
 
 def _make_storage(note_count: int, base: Path) -> StorageManager:
@@ -44,23 +35,30 @@ def _typing_session() -> dict:
     nd = StorageManager.default_note()
     nd["content"] = "Start"
     storage.set_note(nd["id"], nd)
-
     app = QApplication.instance() or QApplication([])
-    with (
-        patch("stickynotes.app_manager.QSystemTrayIcon"),
-        patch("stickynotes.app_manager.get_hotkey_service") as hk,
-    ):
-        hk.return_value = MagicMock()
-        t0 = time.perf_counter()
-        mgr = AppManager(app)
-        nid = next(iter(mgr.notes))
-        note = mgr.notes[nid]
-        note.editor.setPlainText(note.editor.toPlainText() + ("x" * 500))
-        note._persist()
-        mgr._schedule_dock_refresh(nid)
-        mgr._refresh_all_docks()
-        elapsed = (time.perf_counter() - t0) * 1000.0
-    return _scenario_result("scenario", "typing_session_500_chars", elapsed)
+
+    def do_typing() -> None:
+        with (
+            patch("stickynotes.app_manager.StorageManager", return_value=storage),
+            patch("stickynotes.app_manager.QSystemTrayIcon"),
+            patch("stickynotes.app_manager.get_hotkey_service") as hk,
+        ):
+            hk.return_value = MagicMock()
+            mgr = AppManager(app)
+            nid = next(iter(mgr.notes))
+            note = mgr.notes[nid]
+            note.editor.setPlainText(note.editor.toPlainText() + ("x" * 500))
+            note._persist()
+            mgr._schedule_dock_refresh(nid)
+            mgr._refresh_all_docks()
+
+    return run_timed(
+        "scenario",
+        "typing_session_500_chars",
+        do_typing,
+        iterations=10,
+        warmup=1,
+    )
 
 
 def _bulk_load() -> dict:
@@ -68,17 +66,23 @@ def _bulk_load() -> dict:
     storage = _make_storage(50, base)
     app = QApplication.instance() or QApplication([])
 
+    t0 = time.perf_counter()
     with (
         patch("stickynotes.app_manager.StorageManager", return_value=storage),
         patch("stickynotes.app_manager.QSystemTrayIcon"),
         patch("stickynotes.app_manager.get_hotkey_service") as hk,
     ):
         hk.return_value = MagicMock()
-        t0 = time.perf_counter()
         mgr = AppManager(app)
         mgr._refresh_all_docks()
-        elapsed = (time.perf_counter() - t0) * 1000.0
-    return _scenario_result("scenario", "bulk_load_50_notes", elapsed)
+    elapsed = (time.perf_counter() - t0) * 1000.0
+    return {
+        "name": "scenario",
+        "scenario": "bulk_load_50_notes",
+        "median_ms": round(elapsed, 4),
+        "p95_ms": round(elapsed, 4),
+        "iterations": 1,
+    }
 
 
 def _screen_change() -> dict:
@@ -95,16 +99,23 @@ def _screen_change() -> dict:
         patch("stickynotes.app_manager.get_hotkey_service") as hk,
     ):
         hk.return_value = MagicMock()
-        mgr = AppManager(app)
-        t0 = time.perf_counter()
-        mgr._create_docks()
-        mgr._create_docks()
-        elapsed = (time.perf_counter() - t0) * 1000.0
-    return _scenario_result("scenario", "screen_change_2x_create_docks", elapsed)
+        manager = AppManager(app)
+
+    t0 = time.perf_counter()
+    manager._create_docks()
+    manager._create_docks()
+    elapsed = (time.perf_counter() - t0) * 1000.0
+    return {
+        "name": "scenario",
+        "scenario": "screen_change_2x_create_docks",
+        "median_ms": round(elapsed, 4),
+        "p95_ms": round(elapsed, 4),
+        "iterations": 1,
+    }
 
 
 def run_benchmarks() -> list[dict]:
-    return [_typing_session(), _bulk_load(), _screen_change()]
+    return [_bulk_load(), _screen_change(), _typing_session()]
 
 
 if __name__ == "__main__":

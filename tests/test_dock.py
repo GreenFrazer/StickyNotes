@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QRect
+from PyQt6.QtCore import QPoint, QRect
 
 import pytest
 
@@ -58,6 +58,34 @@ def test_update_note_card_inserts_new_note(dock: DockWidget) -> None:
     dock.update_note_card(nd2["id"], nd2)
     assert nd2["id"] in dock._indicator_map
     assert len(dock._indicators) == 2
+
+
+def test_poll_mouse_same_cursor_skips_interval_reset(
+    dock: DockWidget, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dock._poll.stop()
+    dock._shown = False
+    dock._last_poll_cursor = None
+    dock._last_poll_shown = False
+
+    pos = QPoint(960, 500)
+    monkeypatch.setattr("stickynotes.ui.dock.QCursor.pos", lambda: pos)
+
+    set_interval_calls: list[int] = []
+    original_set_interval = dock._poll.setInterval
+
+    def track_set_interval(ms: int) -> None:
+        set_interval_calls.append(ms)
+        original_set_interval(ms)
+
+    monkeypatch.setattr(dock._poll, "setInterval", track_set_interval)
+
+    dock._poll_mouse()
+    count_after_first = len(set_interval_calls)
+    assert count_after_first >= 1
+
+    dock._poll_mouse()
+    assert len(set_interval_calls) == count_after_first
 
 
 def test_remove_note_card(dock: DockWidget) -> None:

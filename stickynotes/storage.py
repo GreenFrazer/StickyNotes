@@ -42,6 +42,8 @@ class StorageManager:
             "dock_shortcuts": [],
         }
         self._saves_since_backup = 0
+        self._last_serialized: str | None = None
+        self._dirty = False
         self.load()
 
     @staticmethod
@@ -127,31 +129,41 @@ class StorageManager:
             return self._try_restore_backup()
         return False
 
+    def _serialize(self) -> str:
+        return json.dumps(self._data, indent=2, ensure_ascii=False)
+
+    def _mark_clean(self) -> None:
+        self._last_serialized = None
+        self._dirty = False
+
     def load(self) -> None:
         if not self.filepath.exists():
             self._data = self._empty_data()
+            self._mark_clean()
             return
         try:
             raw = self._read_json_file(self.filepath)
             self._data = self._normalize_loaded(raw)
+            self._mark_clean()
         except json.JSONDecodeError as exc:
             logger.error("Corrupt data.json: %s", exc)
             if self._offer_backup_restore():
                 return
             self._data = self._empty_data()
+            self._mark_clean()
         except OSError as exc:
             logger.error("Cannot read data.json: %s", exc)
             self._data = self._empty_data()
+            self._mark_clean()
 
     def save(self) -> None:
+        if not self._dirty:
+            return
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
-        serialized = json.dumps(self._data, indent=2, ensure_ascii=False)
-        if self.filepath.exists():
-            try:
-                if self.filepath.read_text(encoding="utf-8") == serialized:
-                    return
-            except OSError:
-                pass
+        serialized = self._serialize()
+        if serialized == self._last_serialized:
+            self._dirty = False
+            return
         tmp = self.filepath.with_suffix(".json.tmp")
         try:
             with open(tmp, "w", encoding="utf-8") as f:
@@ -165,6 +177,8 @@ class StorageManager:
                 shutil.copy2(self.filepath, self.backup_path)
                 self._saves_since_backup = 0
             os.replace(tmp, self.filepath)
+            self._last_serialized = serialized
+            self._dirty = False
         except OSError:
             if tmp.exists():
                 try:
@@ -189,17 +203,24 @@ class StorageManager:
         if existing == stored:
             return
         self._data.setdefault("notes", {})[nid] = stored
+        self._dirty = True
         self.save()
 
     def delete_note(self, nid: str) -> None:
+        if nid not in self._data.get("notes", {}):
+            return
         self._data.get("notes", {}).pop(nid, None)
+        self._dirty = True
         self.save()
 
     def get_settings(self) -> dict[str, Any]:
         return dict(self._data.get("settings", default_settings()))
 
     def set_settings(self, settings: dict[str, Any]) -> None:
+        if self._data.get("settings") == settings:
+            return
         self._data["settings"] = settings
+        self._dirty = True
         self.save()
 
     def get_dock_shortcuts(self) -> list[dict[str, Any]]:
@@ -213,6 +234,7 @@ class StorageManager:
     ) -> dict[str, Any]:
         shortcut = default_dock_shortcut(path=path, label=label)
         self._data.setdefault("dock_shortcuts", []).append(shortcut)
+        self._dirty = True
         self.save()
         return dict(shortcut)
 
@@ -223,4 +245,5 @@ class StorageManager:
         self._data["dock_shortcuts"] = [
             s for s in shortcuts if isinstance(s, dict) and s.get("id") != shortcut_id
         ]
+        self._dirty = True
         self.save()

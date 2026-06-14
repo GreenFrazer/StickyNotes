@@ -493,7 +493,10 @@ class DockWidget(QWidget):
         self._build_ui()
         self._apply_style()
         self._poll = QTimer(self)
-        self._poll.setInterval(self.POLL_FAST_MS)
+        self._poll_interval_ms = self.POLL_FAST_MS
+        self._poll.setInterval(self._poll_interval_ms)
+        self._last_poll_cursor: QPoint | None = None
+        self._last_poll_shown = False
         self._poll.timeout.connect(self._poll_mouse)
         self._poll.start()
         self._hide_tmr = QTimer(self)
@@ -957,12 +960,19 @@ class DockWidget(QWidget):
             and g.top() <= c.y() <= g.bottom()
         )
 
-    def _set_poll_interval(self, ms: int) -> None:
-        if self._poll.interval() != ms:
+    def _ensure_poll_interval(self, ms: int) -> None:
+        if self._poll_interval_ms != ms:
+            self._poll_interval_ms = ms
             self._poll.setInterval(ms)
 
     def _poll_mouse(self) -> None:
         c = QCursor.pos()
+        if (
+            self._last_poll_cursor is not None
+            and self._last_poll_cursor == c
+            and self._last_poll_shown == self._shown
+        ):
+            return
         g = self._screen_geo
         z = self.TRIGGER
         hit = False
@@ -986,12 +996,15 @@ class DockWidget(QWidget):
             )
             if not popup_hover and not self._hide_tmr.isActive():
                 self._hide_tmr.start()
-        if hit or self._shown:
-            self._set_poll_interval(self.POLL_FAST_MS)
+        active = hit or self._shown
+        if active:
+            self._ensure_poll_interval(self.POLL_FAST_MS)
         elif self._cursor_near_trigger(c):
-            self._set_poll_interval(self.POLL_NEAR_MS)
+            self._ensure_poll_interval(self.POLL_NEAR_MS)
         else:
-            self._set_poll_interval(self.POLL_SLOW_MS)
+            self._ensure_poll_interval(self.POLL_SLOW_MS)
+        self._last_poll_cursor = QPoint(c)
+        self._last_poll_shown = self._shown
 
     def showEvent(self, e) -> None:
         super().showEvent(e)

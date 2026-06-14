@@ -34,7 +34,7 @@ def run_benchmarks() -> list[dict]:
             "10k_iterations",
             poll_10k,
             iterations=5,
-            warmup=1,
+            warmup=2,
         )
     ]
 

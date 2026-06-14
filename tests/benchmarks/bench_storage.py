@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -30,6 +31,8 @@ def run_benchmarks() -> list[dict]:
     for count in (1, 10, 50, 100):
         for label, content in (("small", SMALL), ("large", LARGE)):
             base = Path("/tmp") / f"stickynotes_bench_{count}_{label}"
+            if base.exists():
+                shutil.rmtree(base)
             paths = FakePaths(base)
             storage = StorageManager(paths, restore_prompt=lambda: False)
             _populate(storage, count, content)
