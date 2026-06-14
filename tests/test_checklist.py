@@ -177,6 +177,49 @@ def test_backspace_on_last_empty_item_keeps_one_row(qapp, qtbot, temp_paths) -> 
     assert _checklist_editor(w) is not None
 
 
+def test_checklist_layout_matches_text_mode_structure(qapp, qtbot, temp_paths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    nd = StorageManager.default_note()
+    nd["checklist"] = True
+    w = NoteWindow(nd, storage)
+    qtbot.addWidget(w)
+    w.show()
+
+    main_lo = w.layout()
+    assert main_lo is not None
+    widgets = [main_lo.itemAt(i).widget() for i in range(main_lo.count())]
+    assert widgets[0] is w.title_bar
+    assert widgets[1] is w.checklist_widget
+    assert widgets[2] is w.btn_add_checklist_item
+    assert widgets[3] is w.editor
+    assert widgets[4] is w.colour_row
+    assert widgets[5] is w.meta_row
+
+    assert w.checklist_widget.isVisible()
+    assert w.btn_add_checklist_item.isVisible()
+    assert not w.editor.isVisible()
+    assert w.colour_row.isVisible()
+    assert w.meta_row.isVisible()
+
+
+def test_checklist_editor_uses_note_background(qapp, qtbot, temp_paths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    nd = StorageManager.default_note()
+    nd["colour"] = "green"
+    nd["checklist"] = True
+    w = NoteWindow(nd, storage)
+    qtbot.addWidget(w)
+    w.show()
+
+    item = w.checklist_widget.item(0)
+    assert item is not None
+    w.checklist_widget.editItem(item)
+    qtbot.wait(50)
+    editor = _checklist_editor(w)
+    assert editor is not None
+    assert NOTE_COLOURS["green"] in editor.styleSheet()
+
+
 def test_context_menu_add_checklist_item_still_works(checklist_note: NoteWindow, qtbot) -> None:
     w = checklist_note
     start = w.checklist_widget.count()

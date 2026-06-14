@@ -172,10 +172,23 @@ def note_window_stylesheet(bg: str, tb: str) -> str:
             min-height:24px;
             padding:2px 0;
             color:{INK};
+            background:transparent;
         }}
         #checklistWidget::item:selected {{
             background:{tb};
             color:{INK};
+        }}
+        #checklistWidget::item:selected:active {{
+            background:{tb};
+            color:{INK};
+        }}
+        #checklistWidget QLineEdit {{
+            background:{bg};
+            border:none;
+            {_font(FONT_BODY)}
+            color:{INK};
+            padding:0;
+            selection-background-color:{tb};
         }}
         #checklistWidget::indicator {{
             width:18px;
@@ -184,6 +197,7 @@ def note_window_stylesheet(bg: str, tb: str) -> str:
         #addChecklistItemBtn {{
             background:transparent;
             border:none;
+            outline:none;
             {_font(FONT_CAPTION)}
             color:{INK_MUTED};
             text-align:left;
@@ -191,6 +205,10 @@ def note_window_stylesheet(bg: str, tb: str) -> str:
         }}
         #addChecklistItemBtn:hover {{
             color:{INK};
+        }}
+        #addChecklistItemBtn:focus {{
+            border:none;
+            outline:none;
         }}
         #colourRow {{ background:{bg}; }}
         #metaRow {{
