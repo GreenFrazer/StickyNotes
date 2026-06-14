@@ -16,12 +16,14 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
     QMessageBox,
     QPushButton,
     QSizeGrip,
+    QStyledItemDelegate,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -57,6 +59,37 @@ if TYPE_CHECKING:
     from stickynotes.storage import StorageManager
 
 logger = logging.getLogger(__name__)
+
+
+class _ChecklistItemDelegate(QStyledItemDelegate):
+    def __init__(self, window: NoteWindow) -> None:
+        super().__init__(window.checklist_widget)
+        self._window = window
+
+    def createEditor(self, parent, option, index):  # noqa: ANN001
+        editor = super().createEditor(parent, option, index)
+        if isinstance(editor, QLineEdit):
+            self._window._checklist_editing_item = self._window.checklist_widget.item(
+                index.row()
+            )
+            editor.installEventFilter(self)
+            editor.destroyed.connect(self._window._clear_checklist_editing_item)
+        return editor
+
+    def setModelData(self, editor, model, index) -> None:  # noqa: ANN001
+        super().setModelData(editor, model, index)
+        self._window._clear_checklist_editing_item()
+
+    def eventFilter(self, obj, event) -> bool:
+        if isinstance(obj, QLineEdit) and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self._window._finish_checklist_edit_and_add_below(obj)
+                return True
+            if key == Qt.Key.Key_Backspace and not obj.text():
+                self._window._remove_empty_checklist_item(obj)
+                return True
+        return super().eventFilter(obj, event)
 
 
 class NoteWindow(QWidget):
@@ -97,6 +130,7 @@ class NoteWindow(QWidget):
         self._copy_revert.setInterval(1000)
         self._copy_revert.timeout.connect(self._reset_copy_icon)
         self._checklist_syncing = False
+        self._checklist_editing_item: QListWidgetItem | None = None
         self._build_ui()
         self._apply_data()
         self._apply_style()
@@ -170,13 +204,29 @@ class NoteWindow(QWidget):
         for b in (self.btn_pin, self.btn_close):
             tb.addWidget(b)
 
-        self.checklist_widget = QListWidget(self)
+        self.checklist_panel = QWidget(self)
+        self.checklist_panel.setObjectName("checklistPanel")
+        checklist_lo = QVBoxLayout(self.checklist_panel)
+        checklist_lo.setContentsMargins(0, 0, 0, 0)
+        checklist_lo.setSpacing(0)
+
+        self.checklist_widget = QListWidget(self.checklist_panel)
         self.checklist_widget.setObjectName("checklistWidget")
         self.checklist_widget.setFrameShape(QFrame.Shape.NoFrame)
         self.checklist_widget.setSpacing(2)
-        self.checklist_widget.hide()
+        self.checklist_widget.setItemDelegate(_ChecklistItemDelegate(self))
         self.checklist_widget.itemChanged.connect(self._on_checklist_item_changed)
         self.checklist_widget.itemDoubleClicked.connect(self._on_checklist_item_activated)
+
+        self.btn_add_checklist_item = QPushButton("+ Add item", self.checklist_panel)
+        self.btn_add_checklist_item.setObjectName("addChecklistItemBtn")
+        self.btn_add_checklist_item.setToolTip("Add another checklist item")
+        self.btn_add_checklist_item.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_add_checklist_item.clicked.connect(self._add_checklist_item)
+
+        checklist_lo.addWidget(self.checklist_widget, 1)
+        checklist_lo.addWidget(self.btn_add_checklist_item)
+        self.checklist_panel.hide()
 
         self.editor = QTextEdit(self)
         self.editor.setAcceptRichText(False)
@@ -236,7 +286,7 @@ class NoteWindow(QWidget):
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(0)
         lo.addWidget(self.title_bar)
-        lo.addWidget(self.checklist_widget, 1)
+        lo.addWidget(self.checklist_panel, 1)
         lo.addWidget(self.editor, 1)
         lo.addWidget(self.colour_row)
         lo.addWidget(self.meta_row)
@@ -304,6 +354,68 @@ class NoteWindow(QWidget):
     def _on_checklist_item_activated(self, item: QListWidgetItem) -> None:
         self.checklist_widget.editItem(item)
 
+    def _clear_checklist_editing_item(self, _obj: object | None = None) -> None:
+        self._checklist_editing_item = None
+
+    def _checklist_editor_line_edit(self) -> QLineEdit | None:
+        for editor in self.checklist_widget.findChildren(QLineEdit):
+            if editor.isVisible():
+                return editor
+        return None
+
+    def _editing_checklist_item(self) -> QListWidgetItem | None:
+        if self._checklist_editing_item is not None:
+            return self._checklist_editing_item
+        if self._checklist_editor_line_edit() is None:
+            return None
+        return self.checklist_widget.currentItem()
+
+    def _close_checklist_editor(self, *, commit: bool = True) -> QListWidgetItem | None:
+        editor = self._checklist_editor_line_edit()
+        item = self._editing_checklist_item()
+        if editor is None or item is None:
+            return None
+        if commit:
+            item.setText(editor.text())
+        self.checklist_widget.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._clear_checklist_editing_item()
+        return item
+
+    def _finish_checklist_edit_and_add_below(self, line_edit: QLineEdit) -> None:
+        item = self._editing_checklist_item()
+        if item is None:
+            return
+        text = line_edit.text()
+        row = self.checklist_widget.row(item)
+        item.setText(text)
+        self.checklist_widget.setFocus(Qt.FocusReason.OtherFocusReason)
+        new_item = self._new_checklist_item()
+        self.checklist_widget.insertItem(row + 1, new_item)
+        self.checklist_widget.setCurrentItem(new_item)
+        self.checklist_widget.editItem(new_item)
+        self._update_ts()
+        self._save_timer.start()
+
+    def _remove_empty_checklist_item(self, line_edit: QLineEdit) -> None:
+        item = self._editing_checklist_item()
+        if item is None or line_edit.text():
+            return
+        row = self.checklist_widget.row(item)
+        self.checklist_widget.setFocus(Qt.FocusReason.OtherFocusReason)
+        if self.checklist_widget.count() <= 1:
+            item.setText("")
+            self.checklist_widget.setCurrentItem(item)
+            self.checklist_widget.editItem(item)
+            return
+        self.checklist_widget.takeItem(row)
+        focus_row = min(row, self.checklist_widget.count() - 1)
+        focus_item = self.checklist_widget.item(focus_row)
+        if focus_item is not None:
+            self.checklist_widget.setCurrentItem(focus_item)
+            self.checklist_widget.editItem(focus_item)
+        self._update_ts()
+        self._save_timer.start()
+
     def _on_checklist_item_changed(self, item: QListWidgetItem) -> None:
         if self._checklist_syncing:
             return
@@ -324,11 +436,11 @@ class NoteWindow(QWidget):
             self.note_data["content"] = content
             self._text_to_checklist(content)
             self.editor.hide()
-            self.checklist_widget.show()
+            self.checklist_panel.show()
         else:
             self.note_data["content"] = self._checklist_to_text()
             self.editor.setPlainText(self.note_data["content"])
-            self.checklist_widget.hide()
+            self.checklist_panel.hide()
             self.editor.show()
         self.note_data["checklist"] = on
         self._update_ts()
@@ -338,6 +450,7 @@ class NoteWindow(QWidget):
         self._set_checklist_mode(not self.note_data.get("checklist", False))
 
     def _add_checklist_item(self) -> None:
+        self._close_checklist_editor()
         item = self._new_checklist_item()
         self.checklist_widget.addItem(item)
         self.checklist_widget.setCurrentItem(item)
@@ -479,7 +592,7 @@ class NoteWindow(QWidget):
         if d.get("checklist"):
             self._text_to_checklist(content)
             self.editor.hide()
-            self.checklist_widget.show()
+            self.checklist_panel.show()
         else:
             self.editor.setPlainText(content)
         self._update_tag_chip()
@@ -871,7 +984,7 @@ class NoteWindow(QWidget):
             if not self.note_data.get("compact", False):
                 self._full_h = self.height()
             self.editor.hide()
-            self.checklist_widget.hide()
+            self.checklist_panel.hide()
             self.colour_row.hide()
             self.meta_row.hide()
             self.setFixedHeight(self.TB + 4)
@@ -881,11 +994,11 @@ class NoteWindow(QWidget):
             self.colour_row.show()
             self.meta_row.show()
             if self.note_data.get("checklist"):
-                self.checklist_widget.show()
+                self.checklist_panel.show()
                 self.editor.hide()
             else:
                 self.editor.show()
-                self.checklist_widget.hide()
+                self.checklist_panel.hide()
             self.setMinimumHeight(60)
             self.setMaximumHeight(16777215)
             self.resize(self.width(), self._full_h)

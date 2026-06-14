@@ -181,6 +181,17 @@ def note_window_stylesheet(bg: str, tb: str) -> str:
             width:18px;
             height:18px;
         }}
+        #addChecklistItemBtn {{
+            background:transparent;
+            border:none;
+            {_font(FONT_CAPTION)}
+            color:{INK_MUTED};
+            text-align:left;
+            padding:2px 8px 8px 14px;
+        }}
+        #addChecklistItemBtn:hover {{
+            color:{INK};
+        }}
         #colourRow {{ background:{bg}; }}
         #metaRow {{
             background:{bg};
