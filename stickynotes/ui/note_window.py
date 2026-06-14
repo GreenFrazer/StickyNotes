@@ -65,6 +65,7 @@ class NoteWindow(QWidget):
         self._revealed = False
         self._drag_on = False
         self._drag_start = QPoint()
+        self._editing = False
         self._auto_resizing = False
         self._full_h = note_data.get("height", DEFAULT_NOTE_H)
         self._save_timer = QTimer(self)
@@ -101,6 +102,7 @@ class NoteWindow(QWidget):
         self.title_bar.setFixedHeight(self.TB)
         self.title_bar.setObjectName("titleBar")
         self.title_bar.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.title_bar.installEventFilter(self)
 
         self.btn_copy = QPushButton(self.title_bar)
         self.btn_copy.setFixedSize(24, 24)
@@ -145,6 +147,7 @@ class NoteWindow(QWidget):
 
         self.editor = QTextEdit(self)
         self.editor.setAcceptRichText(False)
+        self.editor.setDragEnabled(False)
         self.editor.setPlaceholderText("Type your note here\u2026")
         self.editor.textChanged.connect(self._on_text)
         self.editor.setObjectName("noteEditor")
@@ -230,7 +233,9 @@ class NoteWindow(QWidget):
     def _reveal_private(self, _e=None) -> None:
         self._revealed = True
         self._apply_private_state()
+        self._editing = True
         self.editor.setFocus()
+        self._expand_for_editing()
 
     def _hide_private_content(self) -> None:
         self._revealed = False
@@ -373,24 +378,49 @@ class NoteWindow(QWidget):
         ):
             self.request_delete.emit(self.note_id)
 
-    def mousePressEvent(self, e) -> None:
-        if e.button() == Qt.MouseButton.LeftButton and e.pos().y() <= self.TB:
-            self._drag_on = True
-            self._drag_start = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            self.title_bar.setCursor(Qt.CursorShape.ClosedHandCursor)
-        super().mousePressEvent(e)
+    def _title_bar_is_draggable_at(self, pos: QPoint) -> bool:
+        return self.title_bar.childAt(pos) is None
+
+    def _begin_window_drag(self, global_pos: QPoint) -> None:
+        if self._drag_on:
+            return
+        self._drag_on = True
+        self._editing = False
+        self._drag_start = global_pos - self.frameGeometry().topLeft()
+        self.title_bar.setCursor(Qt.CursorShape.ClosedHandCursor)
+        self.title_bar.grabMouse()
+        self.editor.clearFocus()
+        cursor = self.editor.textCursor()
+        if cursor.hasSelection():
+            cursor.clearSelection()
+            self.editor.setTextCursor(cursor)
+
+    def _move_window_drag(self, global_pos: QPoint) -> None:
+        if not self._drag_on:
+            return
+        self.move(self._snap(global_pos - self._drag_start))
+
+    def _end_window_drag(self) -> None:
+        if not self._drag_on:
+            return
+        self._drag_on = False
+        self.title_bar.releaseMouse()
+        self.title_bar.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.note_data["user_resized"] = True
+        self._persist()
 
     def mouseMoveEvent(self, e) -> None:
         if self._drag_on:
-            self.move(self._snap(e.globalPosition().toPoint() - self._drag_start))
+            self._move_window_drag(e.globalPosition().toPoint())
+            e.accept()
+            return
         super().mouseMoveEvent(e)
 
     def mouseReleaseEvent(self, e) -> None:
-        if self._drag_on:
-            self._drag_on = False
-            self.title_bar.setCursor(Qt.CursorShape.OpenHandCursor)
-            self.note_data["user_resized"] = True
-            self._persist()
+        if self._drag_on and e.button() == Qt.MouseButton.LeftButton:
+            self._end_window_drag()
+            e.accept()
+            return
         super().mouseReleaseEvent(e)
 
     def _snap(self, pos: QPoint) -> QPoint:
@@ -425,7 +455,11 @@ class NoteWindow(QWidget):
 
     def _on_text(self) -> None:
         self._update_ts()
-        if self.editor.hasFocus() and not self.note_data.get("compact"):
+        if (
+            self._editing
+            and not self.note_data.get("compact")
+            and not self._drag_on
+        ):
             self._expand_for_editing()
         self._save_timer.start()
 
@@ -464,7 +498,11 @@ class NoteWindow(QWidget):
         return self._chrome_height() + max(40, content_h)
 
     def _expand_for_editing(self) -> None:
-        if self.note_data.get("compact"):
+        if (
+            self.note_data.get("compact")
+            or self._drag_on
+            or self._auto_resizing
+        ):
             return
         target = max(self._full_h, self._expanded_height())
         if target <= self.height():
@@ -483,13 +521,51 @@ class NoteWindow(QWidget):
         self.resize(self.width(), self._full_h)
 
     def eventFilter(self, obj, event) -> bool:
+        if obj is self.title_bar:
+            et = event.type()
+            if et == QEvent.Type.MouseButtonPress:
+                if (
+                    event.button() == Qt.MouseButton.LeftButton
+                    and self._title_bar_is_draggable_at(event.pos())
+                ):
+                    self._begin_window_drag(event.globalPosition().toPoint())
+                    return True
+            elif self._drag_on:
+                if et == QEvent.Type.MouseMove:
+                    self._move_window_drag(event.globalPosition().toPoint())
+                    return True
+                if (
+                    et == QEvent.Type.MouseButtonRelease
+                    and event.button() == Qt.MouseButton.LeftButton
+                ):
+                    self._end_window_drag()
+                    return True
+
+        if self._drag_on and obj is self.editor:
+            if event.type() in (
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.MouseButtonRelease,
+                QEvent.Type.MouseMove,
+                QEvent.Type.MouseButtonDblClick,
+                QEvent.Type.DragEnter,
+                QEvent.Type.DragMove,
+                QEvent.Type.Drop,
+            ):
+                return True
+
         if obj is self.editor and not self.note_data.get("compact"):
-            if event.type() == QEvent.Type.FocusIn:
-                self._expand_for_editing()
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if (
+                    event.button() == Qt.MouseButton.LeftButton
+                    and not self._drag_on
+                ):
+                    self._editing = True
+                    self._expand_for_editing()
             elif event.type() == QEvent.Type.FocusOut:
                 fw = QApplication.focusWidget()
                 if fw is not None and self.isAncestorOf(fw):
                     return super().eventFilter(obj, event)
+                self._editing = False
                 self._collapse_to_rest()
         return super().eventFilter(obj, event)
 
