@@ -509,6 +509,32 @@ class NoteWindow(QWidget):
         sb = self.editor.verticalScrollBar()
         return sb is not None and sb.maximum() > 0
 
+    def _cursor_over_editor(self) -> bool:
+        return self.editor.rect().contains(
+            self.editor.mapFromGlobal(QCursor.pos())
+        )
+
+    def _should_expand_on_focus_in(self, event: QFocusEvent) -> bool:
+        if self._drag_on:
+            return False
+        reason = event.reason()
+        if reason in (
+            Qt.FocusReason.MouseFocusReason,
+            Qt.FocusReason.TabFocusReason,
+            Qt.FocusReason.BacktabFocusReason,
+            Qt.FocusReason.ShortcutFocusReason,
+        ):
+            return True
+        # macOS often delivers ActiveWindowFocusReason on first click into an
+        # inactive note; dock hover uses the same reason but the cursor stays
+        # on the dock, not over the editor.
+        if reason == Qt.FocusReason.ActiveWindowFocusReason:
+            return bool(
+                QApplication.mouseButtons() & Qt.MouseButton.LeftButton
+                and self._cursor_over_editor()
+            )
+        return False
+
     def _expand_for_editing(self) -> None:
         if (
             self.note_data.get("compact")
@@ -575,18 +601,10 @@ class NoteWindow(QWidget):
                     and not self._drag_on
                 ):
                     self._editing = True
-                    self._expand_for_editing()
+                    QTimer.singleShot(0, self._expand_for_editing)
             elif event.type() == QEvent.Type.FocusIn:
-                if (
-                    not self._drag_on
-                    and isinstance(event, QFocusEvent)
-                    and event.reason()
-                    in (
-                        Qt.FocusReason.MouseFocusReason,
-                        Qt.FocusReason.TabFocusReason,
-                        Qt.FocusReason.BacktabFocusReason,
-                        Qt.FocusReason.ShortcutFocusReason,
-                    )
+                if isinstance(event, QFocusEvent) and self._should_expand_on_focus_in(
+                    event
                 ):
                     self._editing = True
                     QTimer.singleShot(0, self._expand_for_editing)
