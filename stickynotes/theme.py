@@ -160,6 +160,10 @@ def note_window_stylesheet(bg: str, tb: str) -> str:
             color:{INK};
             selection-background-color:{tb};
         }}
+        #checklistBody {{
+            background:{bg};
+            border:none;
+        }}
         #checklistWidget {{
             background:{bg};
             border:none;
@@ -167,6 +171,9 @@ def note_window_stylesheet(bg: str, tb: str) -> str:
             {_font(FONT_BODY)}
             padding:8px 6px;
             color:{INK};
+        }}
+        #checklistWidget::viewport {{
+            background:{bg};
         }}
         #checklistWidget::item {{
             min-height:24px;
@@ -195,7 +202,7 @@ def note_window_stylesheet(bg: str, tb: str) -> str:
             height:18px;
         }}
         #addChecklistItemBtn {{
-            background:transparent;
+            background:{bg};
             border:none;
             outline:none;
             {_font(FONT_CAPTION)}
@@ -204,9 +211,15 @@ def note_window_stylesheet(bg: str, tb: str) -> str:
             padding:2px 8px 8px 14px;
         }}
         #addChecklistItemBtn:hover {{
+            background:{bg};
+            color:{INK};
+        }}
+        #addChecklistItemBtn:pressed {{
+            background:{bg};
             color:{INK};
         }}
         #addChecklistItemBtn:focus {{
+            background:{bg};
             border:none;
             outline:none;
         }}

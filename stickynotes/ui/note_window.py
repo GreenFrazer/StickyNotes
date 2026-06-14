@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFontMetrics, QMouseEvent
+from PyQt6.QtGui import QColor, QFontMetrics, QMouseEvent, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -118,6 +118,8 @@ class NoteWindow(QWidget):
         dark_mode: bool = False,
     ) -> None:
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setAutoFillBackground(True)
         self.note_data = note_data
         self.storage = storage
         self.note_id = note_data["id"]
@@ -215,25 +217,47 @@ class NoteWindow(QWidget):
         for b in (self.btn_pin, self.btn_close):
             tb.addWidget(b)
 
-        self.checklist_widget = QListWidget(self)
+        self.checklist_body = QWidget(self)
+        self.checklist_body.setObjectName("checklistBody")
+        self.checklist_body.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+
+        self.checklist_widget = QListWidget(self.checklist_body)
         self.checklist_widget.setObjectName("checklistWidget")
         self.checklist_widget.setFrameShape(QFrame.Shape.NoFrame)
         self.checklist_widget.setSpacing(2)
-        self.checklist_widget.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        self.checklist_widget.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
+        self.checklist_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.checklist_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.checklist_widget.setAutoFillBackground(True)
+        self.checklist_widget.viewport().setAutoFillBackground(True)
         self.checklist_widget.setItemDelegate(_ChecklistItemDelegate(self))
         self.checklist_widget.itemChanged.connect(self._on_checklist_item_changed)
         self.checklist_widget.itemDoubleClicked.connect(self._on_checklist_item_activated)
 
-        self.btn_add_checklist_item = QPushButton("+ Add item", self)
+        self.btn_add_checklist_item = QPushButton("+ Add item", self.checklist_body)
         self.btn_add_checklist_item.setObjectName("addChecklistItemBtn")
         self.btn_add_checklist_item.setToolTip("Add another checklist item")
         self.btn_add_checklist_item.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_add_checklist_item.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_add_checklist_item.setFlat(True)
         self.btn_add_checklist_item.clicked.connect(self._add_checklist_item)
-        self.checklist_widget.hide()
-        self.btn_add_checklist_item.hide()
+
+        cb_lo = QVBoxLayout(self.checklist_body)
+        cb_lo.setContentsMargins(0, 0, 0, 0)
+        cb_lo.setSpacing(0)
+        cb_lo.addWidget(self.checklist_widget)
+        cb_lo.addWidget(self.btn_add_checklist_item)
+        cb_lo.addStretch(1)
+
+        self.checklist_body.hide()
 
         self.editor = QTextEdit(self)
         self.editor.setAcceptRichText(False)
@@ -293,8 +317,7 @@ class NoteWindow(QWidget):
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(0)
         lo.addWidget(self.title_bar)
-        lo.addWidget(self.checklist_widget, 1)
-        lo.addWidget(self.btn_add_checklist_item)
+        lo.addWidget(self.checklist_body, 1)
         lo.addWidget(self.editor, 1)
         lo.addWidget(self.colour_row)
         lo.addWidget(self.meta_row)
@@ -356,6 +379,7 @@ class NoteWindow(QWidget):
                 )
             if self.checklist_widget.count() == 0:
                 self.checklist_widget.addItem(self._new_checklist_item())
+            self._sync_checklist_height()
         finally:
             self._checklist_syncing = False
 
@@ -401,6 +425,7 @@ class NoteWindow(QWidget):
         self.checklist_widget.insertItem(row + 1, new_item)
         self.checklist_widget.setCurrentItem(new_item)
         self.checklist_widget.editItem(new_item)
+        self._sync_checklist_height()
         self._update_ts()
         self._save_timer.start()
 
@@ -421,6 +446,7 @@ class NoteWindow(QWidget):
         if focus_item is not None:
             self.checklist_widget.setCurrentItem(focus_item)
             self.checklist_widget.editItem(focus_item)
+        self._sync_checklist_height()
         self._update_ts()
         self._save_timer.start()
 
@@ -434,14 +460,28 @@ class NoteWindow(QWidget):
         self._update_ts()
         self._save_timer.start()
 
+    def _checklist_content_height(self) -> int:
+        count = self.checklist_widget.count()
+        if count == 0:
+            return 40
+        row_h = sum(
+            self.checklist_widget.sizeHintForRow(i) for i in range(count)
+        )
+        row_h += self.checklist_widget.spacing() * max(0, count - 1)
+        return max(40, row_h + 16)
+
+    def _sync_checklist_height(self) -> None:
+        if not self.note_data.get("checklist") or not self.checklist_body.isVisible():
+            return
+        self.checklist_widget.setFixedHeight(self._checklist_content_height())
+
     def _show_checklist_body(self) -> None:
         self.editor.hide()
-        self.checklist_widget.show()
-        self.btn_add_checklist_item.show()
+        self.checklist_body.show()
+        self._sync_checklist_height()
 
     def _hide_checklist_body(self) -> None:
-        self.checklist_widget.hide()
-        self.btn_add_checklist_item.hide()
+        self.checklist_body.hide()
         self.editor.show()
 
     def _set_checklist_mode(self, on: bool) -> None:
@@ -471,6 +511,7 @@ class NoteWindow(QWidget):
         self.checklist_widget.addItem(item)
         self.checklist_widget.setCurrentItem(item)
         self.checklist_widget.editItem(item)
+        self._sync_checklist_height()
         self._update_ts()
         self._save_timer.start()
 
@@ -485,6 +526,7 @@ class NoteWindow(QWidget):
                     self.checklist_widget.takeItem(i)
         finally:
             self._checklist_syncing = False
+        self._sync_checklist_height()
         self._persist()
 
     def _update_tag_chip(self) -> None:
@@ -626,6 +668,13 @@ class NoteWindow(QWidget):
         tb = TITLE_BAR_COLOURS.get(cn, "#E8E85C")
         self.setStyleSheet(note_window_stylesheet(bg, tb))
         self.editor.setStyleSheet("")
+        note_bg = QColor(bg)
+        for widget in (self.checklist_widget, self.checklist_widget.viewport()):
+            pal = widget.palette()
+            pal.setColor(QPalette.ColorRole.Base, note_bg)
+            pal.setColor(QPalette.ColorRole.Window, note_bg)
+            widget.setPalette(pal)
+            widget.setAutoFillBackground(True)
         for btn in (self.btn_copy, self.btn_lock, self.btn_compact, self.btn_pin, self.btn_close):
             btn.setStyleSheet(title_button_stylesheet(size=24))
         self._refresh_title_icons()
@@ -999,8 +1048,7 @@ class NoteWindow(QWidget):
             if not self.note_data.get("compact", False):
                 self._full_h = self.height()
             self.editor.hide()
-            self.checklist_widget.hide()
-            self.btn_add_checklist_item.hide()
+            self.checklist_body.hide()
             self.colour_row.hide()
             self.meta_row.hide()
             self.setFixedHeight(self.TB + 4)

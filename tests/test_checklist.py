@@ -79,8 +79,47 @@ def test_checklist_widget_uses_note_background(qapp, qtbot, temp_paths) -> None:
     expected_bg = NOTE_COLOURS["blue"]
     stylesheet = w.styleSheet()
     assert expected_bg in stylesheet
+    assert "#checklistBody" in stylesheet
     assert "#checklistWidget" in stylesheet
+    assert "#checklistWidget::viewport" in stylesheet
     assert "#addChecklistItemBtn" in stylesheet
+    assert "background:transparent" not in stylesheet.split("#addChecklistItemBtn")[1].split("}")[0]
+
+
+def test_checklist_surfaces_are_opaque(qapp, qtbot, temp_paths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    nd = StorageManager.default_note()
+    nd["colour"] = "yellow"
+    nd["checklist"] = True
+    w = NoteWindow(nd, storage)
+    qtbot.addWidget(w)
+    w.show()
+
+    expected_bg = NOTE_COLOURS["yellow"]
+    assert w.checklist_body.isVisible()
+    assert expected_bg in w.checklist_body.styleSheet() or expected_bg in w.styleSheet()
+    assert w.checklist_widget.autoFillBackground()
+    assert w.checklist_widget.viewport().autoFillBackground()
+    assert w.btn_add_checklist_item.isFlat()
+    btn_style = w.styleSheet().split("#addChecklistItemBtn")[1]
+    assert f"background:{expected_bg}" in btn_style
+
+
+def test_checklist_height_tracks_item_count(qapp, qtbot, temp_paths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    nd = StorageManager.default_note()
+    nd["content"] = "- [ ] one\n- [ ] two"
+    nd["checklist"] = True
+    w = NoteWindow(nd, storage)
+    qtbot.addWidget(w)
+    w.show()
+
+    h2 = w._checklist_content_height()
+    w._add_checklist_item()
+    qtbot.wait(50)
+    h3 = w._checklist_content_height()
+    assert w.checklist_widget.count() == 3
+    assert h3 > h2
 
 
 def test_add_item_button_adds_row(qapp, qtbot, temp_paths) -> None:
@@ -189,12 +228,12 @@ def test_checklist_layout_matches_text_mode_structure(qapp, qtbot, temp_paths) -
     assert main_lo is not None
     widgets = [main_lo.itemAt(i).widget() for i in range(main_lo.count())]
     assert widgets[0] is w.title_bar
-    assert widgets[1] is w.checklist_widget
-    assert widgets[2] is w.btn_add_checklist_item
-    assert widgets[3] is w.editor
-    assert widgets[4] is w.colour_row
-    assert widgets[5] is w.meta_row
+    assert widgets[1] is w.checklist_body
+    assert widgets[2] is w.editor
+    assert widgets[3] is w.colour_row
+    assert widgets[4] is w.meta_row
 
+    assert w.checklist_body.isVisible()
     assert w.checklist_widget.isVisible()
     assert w.btn_add_checklist_item.isVisible()
     assert not w.editor.isVisible()
