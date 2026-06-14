@@ -443,7 +443,11 @@ class NoteWindow(QWidget):
         super().resizeEvent(e)
         if hasattr(self, "_private_overlay"):
             self._private_overlay.setGeometry(self.editor.rect())
-        if not self.note_data.get("compact", False) and not self._auto_resizing:
+        if (
+            not self.note_data.get("compact", False)
+            and not self._auto_resizing
+            and not self._editing
+        ):
             self._full_h = self.height()
         self.note_data["user_resized"] = True
         self._save_timer.start()
@@ -492,9 +496,18 @@ class NoteWindow(QWidget):
 
     def _expanded_height(self) -> int:
         doc = self.editor.document()
-        doc.setTextWidth(max(1, self.editor.viewport().width()))
-        content_h = int(doc.size().height()) + 16
+        vw = self.editor.viewport().width()
+        if vw <= 1:
+            vw = max(1, self.editor.width() - 2 * self.editor.frameWidth())
+        doc.setTextWidth(max(1, vw))
+        # Stylesheet padding (8px top/bottom) + document margins.
+        pad = 16 + int(2 * doc.documentMargin())
+        content_h = int(doc.size().height()) + pad
         return self._chrome_height() + max(40, content_h)
+
+    def _editor_content_overflows(self) -> bool:
+        sb = self.editor.verticalScrollBar()
+        return sb is not None and sb.maximum() > 0
 
     def _expand_for_editing(self) -> None:
         if (
@@ -505,7 +518,10 @@ class NoteWindow(QWidget):
             return
         target = max(self._full_h, self._expanded_height())
         if target <= self.height():
-            return
+            if not self._editor_content_overflows():
+                return
+            sb = self.editor.verticalScrollBar()
+            target = self.height() + sb.maximum() - sb.value() + 8
         self._auto_resizing = True
         try:
             self.resize(self.width(), target)
@@ -560,6 +576,10 @@ class NoteWindow(QWidget):
                 ):
                     self._editing = True
                     self._expand_for_editing()
+            elif event.type() == QEvent.Type.FocusIn:
+                if not self._drag_on:
+                    self._editing = True
+                    QTimer.singleShot(0, self._expand_for_editing)
             elif event.type() == QEvent.Type.FocusOut:
                 fw = QApplication.focusWidget()
                 if fw is not None and self.isAncestorOf(fw):
