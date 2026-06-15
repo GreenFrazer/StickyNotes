@@ -257,6 +257,20 @@ def test_search_dialog_finds_content(qapp, qtbot) -> None:
     assert dlg._results.count() == 1
 
 
+def test_search_dialog_finds_tags(qapp, qtbot) -> None:
+    note = StorageManager.default_note()
+    note["content"] = "Unrelated body text"
+    note["tags"] = ["work", "urgent"]
+    notes = {note["id"]: note}
+
+    dlg = SearchDialog(notes, lambda nid: notes[nid]["content"])
+    qtbot.addWidget(dlg)
+    dlg._input.setText("urgent")
+    qtbot.wait(400)
+    assert dlg._results.count() == 1
+    assert "Tags: #urgent" in dlg._results.item(0).text()
+
+
 def test_search_dialog_masks_private_until_selected(qapp, qtbot) -> None:
     note = StorageManager.default_note()
     note["content"] = "Secret keyword"

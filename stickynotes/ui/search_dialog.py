@@ -53,7 +53,7 @@ class SearchDialog(QDialog):
         lo = QVBoxLayout(self)
         lo.setSpacing(8)
         self._input = QLineEdit()
-        self._input.setPlaceholderText("Search notes\u2026")
+        self._input.setPlaceholderText("Search notes and tags\u2026")
         self._input.textChanged.connect(self._on_text_changed)
         lo.addWidget(self._input)
         self._status = QLabel("")
@@ -106,15 +106,24 @@ class SearchDialog(QDialog):
         for nid, nd in self._notes.items():
             content = self._content_getter(nid)
             title = note_title(content)
-            haystack = f"{title}\n{content}".lower()
+            tags = nd.get("tags", [])
+            tags_text = " ".join(tags)
+            haystack = f"{title}\n{content}\n{tags_text}".lower()
             if query not in haystack:
                 continue
             if is_private(nd) and nid not in self._revealed_private:
                 preview = private_preview_text()
             else:
-                idx = haystack.find(query)
-                start = max(0, idx - 20)
-                preview = content[start : start + 80].replace("\n", " ")
+                content_haystack = f"{title}\n{content}".lower()
+                matching_tags = [t for t in tags if query in t]
+                if query in content_haystack:
+                    idx = content_haystack.find(query)
+                    start = max(0, idx - 20)
+                    preview = content[start : start + 80].replace("\n", " ")
+                elif matching_tags:
+                    preview = "Tags: " + ", ".join(f"#{t}" for t in matching_tags)
+                else:
+                    preview = content[:80].replace("\n", " ") or ""
             matches.append((nid, nd, preview))
         matches.sort(key=lambda m: m[1].get("modified_at", ""), reverse=True)
         for nid, nd, preview in matches:
