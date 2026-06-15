@@ -142,6 +142,23 @@ def test_private_field_round_trips(temp_paths: FakePaths) -> None:
     assert notes[note["id"]]["content"] == "Secret text"
 
 
+def test_set_note_saves_in_place_metadata_mutation(temp_paths: FakePaths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    note = StorageManager.default_note()
+    note["content"] = "Keep me"
+    storage.set_note(note["id"], note)
+
+    note["private"] = True
+    note["tags"] = ["work"]
+    storage.set_note(note["id"], note)
+
+    reloaded = StorageManager(temp_paths, restore_prompt=lambda: False)
+    saved = reloaded.get_all_notes()[note["id"]]
+    assert saved["private"] is True
+    assert saved["tags"] == ["work"]
+
+
+
 def test_normalize_note_defaults_private_false() -> None:
     from stickynotes.models import normalize_note
 

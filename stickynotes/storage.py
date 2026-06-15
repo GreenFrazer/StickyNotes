@@ -204,7 +204,10 @@ class StorageManager:
             return
         stored = dict(data)
         existing = self._data.get("notes", {}).get(nid)
-        if existing == stored:
+        # Skip only when storage already holds an equal snapshot. When `data` is the
+        # same dict as `existing`, in-place UI mutations would make them equal here
+        # even though disk was never updated.
+        if existing == stored and existing is not data:
             return
         self._data.setdefault("notes", {})[nid] = stored
         self._dirty = True

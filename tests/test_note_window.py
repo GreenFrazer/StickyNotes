@@ -73,3 +73,60 @@ def test_on_text_long_content_no_crash(note_window: NoteWindow, qtbot) -> None:
     w._on_text()
     qtbot.wait(50)
     assert w.height() > 0
+
+
+def test_private_toggle_persists_from_storage_dict(
+    qapp, qtbot, temp_paths
+) -> None:
+    """Loaded notes share storage dicts; private must still save to disk."""
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    nd = StorageManager.default_note()
+    nd["content"] = "Secret plans"
+    storage.set_note(nd["id"], nd)
+
+    loaded = storage.get_all_notes()[nd["id"]]
+    w = NoteWindow(loaded, storage)
+    qtbot.addWidget(w)
+    w.show()
+
+    w._set_private(True)
+
+    reloaded = StorageManager(temp_paths, restore_prompt=lambda: False)
+    assert reloaded.get_all_notes()[nd["id"]]["private"] is True
+
+
+def test_tags_edit_persists_from_storage_dict(qapp, qtbot, temp_paths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    nd = StorageManager.default_note()
+    nd["content"] = "Tagged note"
+    storage.set_note(nd["id"], nd)
+
+    loaded = storage.get_all_notes()[nd["id"]]
+    w = NoteWindow(loaded, storage)
+    qtbot.addWidget(w)
+    w.show()
+
+    w.note_data["tags"] = ["work", "urgent"]
+    w._update_tag_chip()
+    w._persist()
+
+    reloaded = StorageManager(temp_paths, restore_prompt=lambda: False)
+    assert reloaded.get_all_notes()[nd["id"]]["tags"] == ["work", "urgent"]
+
+
+def test_colour_change_persists_from_storage_dict(qapp, qtbot, temp_paths) -> None:
+    storage = StorageManager(temp_paths, restore_prompt=lambda: False)
+    nd = StorageManager.default_note()
+    nd["content"] = "Colour me"
+    storage.set_note(nd["id"], nd)
+
+    loaded = storage.get_all_notes()[nd["id"]]
+    w = NoteWindow(loaded, storage)
+    qtbot.addWidget(w)
+    w.show()
+
+    w._change_colour("blue")
+
+    reloaded = StorageManager(temp_paths, restore_prompt=lambda: False)
+    assert reloaded.get_all_notes()[nd["id"]]["colour"] == "blue"
+

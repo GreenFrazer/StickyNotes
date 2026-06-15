@@ -123,7 +123,9 @@ class NoteWindow(QWidget):
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAutoFillBackground(True)
-        self.note_data = note_data
+        self.note_data = dict(note_data)
+        if self.note_data.get("tags"):
+            self.note_data["tags"] = list(self.note_data["tags"])
         self.storage = storage
         self.note_id = note_data["id"]
         self._dark = dark_mode
@@ -949,20 +951,32 @@ class NoteWindow(QWidget):
             self._expand_timer.start()
         self._save_timer.start()
 
+    def _persist_fields(self) -> dict[str, Any]:
+        return {
+            "content": self.get_content(),
+            "x": self.x(),
+            "y": self.y(),
+            "width": self.width(),
+            "height": self._rest_h,
+            "grip_resized": self.note_data.get("grip_resized", False),
+            "private": self.note_data.get("private", False),
+            "tags": list(self.note_data.get("tags", [])),
+            "colour": self.note_data.get("colour", "yellow"),
+            "opacity": self.note_data.get("opacity", 1.0),
+            "always_on_top": self.note_data.get("always_on_top", False),
+            "visible": self.note_data.get("visible", True),
+            "compact": self.note_data.get("compact", False),
+            "checklist": self.note_data.get("checklist", False),
+            "reminder_at": self.note_data.get("reminder_at"),
+            "user_resized": self.note_data.get("user_resized", False),
+        }
+
     def _persist(self) -> None:
-        c = self.get_content()
-        if c != self.note_data.get("content", ""):
+        fields = self._persist_fields()
+        stored = self.storage.get_all_stored_notes().get(self.note_id)
+        if stored is None or any(stored.get(k) != v for k, v in fields.items()):
             self.note_data["modified_at"] = datetime.now().isoformat(timespec="seconds")
-        self.note_data.update(
-            {
-                "content": c,
-                "x": self.x(),
-                "y": self.y(),
-                "width": self.width(),
-                "height": self._rest_h,
-                "grip_resized": self.note_data.get("grip_resized", False),
-            }
-        )
+        self.note_data.update(fields)
         self._update_ts()
         self.storage.set_note(self.note_id, self.note_data)
         self.note_data_changed.emit(self.note_id)
