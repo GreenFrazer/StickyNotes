@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime
-from pathlib import Path
 from typing import Any, Callable
 
 from PyQt6.QtCore import Qt
@@ -18,23 +16,17 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QRadioButton,
-    QSizePolicy,
     QVBoxLayout,
 )
 
 from stickynotes import __version__
-from stickynotes.theme import DATE_FMT, dialog_stylesheet
+from stickynotes.theme import dialog_stylesheet
 
 _CONTENT_WIDTH = 500
 
 
 def _version_footer() -> str:
-    pkg_init = Path(__file__).resolve().parents[1] / "__init__.py"
-    build = datetime.fromtimestamp(pkg_init.stat().st_mtime)
-    return (
-        f"<small>Sticky Notes v{__version__} \u2013 PyQt6"
-        f" \u00b7 {build.strftime(DATE_FMT)}</small>"
-    )
+    return f"<small>Sticky Notes v{__version__} \u2013 PyQt6</small>"
 
 
 class SettingsDialog(QDialog):
@@ -54,7 +46,6 @@ class SettingsDialog(QDialog):
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
         )
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.settings = dict(cur)
         self._on_export = on_export
         self._on_import = on_import
@@ -85,7 +76,6 @@ class SettingsDialog(QDialog):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(20, 20, 20, 16)
         outer.setSpacing(12)
-        outer.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
 
         la = QVBoxLayout()
         la.setSpacing(14)
@@ -104,7 +94,9 @@ class SettingsDialog(QDialog):
         la.addWidget(g)
 
         self.cd = QCheckBox("Enable Dark Mode (dock, dialogs && note chrome)")
+        self.cd.blockSignals(True)
         self.cd.setChecked(self.settings.get("dark_mode", False))
+        self.cd.blockSignals(False)
         self.cd.stateChanged.connect(self._on_dark_changed)
         la.addWidget(self.cd)
 
@@ -177,8 +169,6 @@ class SettingsDialog(QDialog):
         outer.addLayout(btn_row)
 
         self.setMinimumWidth(_CONTENT_WIDTH)
-        self.adjustSize()
-        self.setFixedSize(self.size())
 
     def _export(self) -> None:
         if self._on_export:

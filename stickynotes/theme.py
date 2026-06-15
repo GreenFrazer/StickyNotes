@@ -387,9 +387,6 @@ def _dialog_indicators(*, dark: bool) -> str:
     else:
         ring = INK_MUTED
         fill = "#ffffff"
-    dot = (
-        f"stop:0 {PRIMARY}, stop:0.35 {PRIMARY}, stop:0.36 {fill}, stop:1 {fill}"
-    )
     return f"""
             QRadioButton::indicator {{
                 width:18px; height:18px;
@@ -398,8 +395,8 @@ def _dialog_indicators(*, dark: bool) -> str:
                 background:{fill};
             }}
             QRadioButton::indicator:checked {{
-                border:2px solid {PRIMARY};
-                background:qradialgradient(cx:0.5, cy:0.5, radius:0.35, fx:0.5, fy:0.5, {dot});
+                border:5px solid {PRIMARY};
+                background:{fill};
             }}
             QRadioButton::indicator:hover {{
                 border-color:{PRIMARY_FOCUS};
