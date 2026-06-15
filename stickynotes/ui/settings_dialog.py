@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable
 
 from PyQt6.QtCore import Qt
@@ -14,15 +16,25 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QRadioButton,
-    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
-    QWidget,
 )
 
-from stickynotes.theme import dialog_stylesheet
+from stickynotes import __version__
+from stickynotes.theme import DATE_FMT, dialog_stylesheet
+
+_CONTENT_WIDTH = 500
+
+
+def _version_footer() -> str:
+    pkg_init = Path(__file__).resolve().parents[1] / "__init__.py"
+    build = datetime.fromtimestamp(pkg_init.stat().st_mtime)
+    return (
+        f"<small>Sticky Notes v{__version__} \u2013 PyQt6"
+        f" \u00b7 {build.strftime(DATE_FMT)}</small>"
+    )
 
 
 class SettingsDialog(QDialog):
@@ -39,11 +51,10 @@ class SettingsDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Sticky Notes \u2013 Settings")
-        self.setMinimumSize(420, 480)
-        self.resize(420, 520)
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
         )
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.settings = dict(cur)
         self._on_export = on_export
         self._on_import = on_import
@@ -72,11 +83,11 @@ class SettingsDialog(QDialog):
 
     def _build(self) -> None:
         outer = QVBoxLayout(self)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        body = QWidget()
-        la = QVBoxLayout(body)
+        outer.setContentsMargins(20, 20, 20, 16)
+        outer.setSpacing(12)
+        outer.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
+
+        la = QVBoxLayout()
         la.setSpacing(14)
 
         g = QGroupBox("Dock Position")
@@ -115,36 +126,42 @@ class SettingsDialog(QDialog):
         bg = QGroupBox("Data & Backup")
         bl = QVBoxLayout(bg)
         row1 = QHBoxLayout()
+        row1.setSpacing(8)
         btn_export = QPushButton("Export\u2026")
         btn_export.clicked.connect(self._export)
         btn_import = QPushButton("Import\u2026")
         btn_import.clicked.connect(self._import)
-        row1.addWidget(btn_export)
-        row1.addWidget(btn_import)
+        row1.addWidget(btn_export, 1)
+        row1.addWidget(btn_import, 1)
         bl.addLayout(row1)
         row2 = QHBoxLayout()
+        row2.setSpacing(8)
         btn_restore = QPushButton("Restore from backup\u2026")
         btn_restore.clicked.connect(self._restore)
         btn_folder = QPushButton("Open data folder")
         btn_folder.clicked.connect(self._open_folder)
-        row2.addWidget(btn_restore)
-        row2.addWidget(btn_folder)
+        row2.addWidget(btn_restore, 1)
+        row2.addWidget(btn_folder, 1)
         bl.addLayout(row2)
-        bl.addWidget(
-            QLabel(
-                "<small>Export as .json or .stickynotes zip. "
-                "Import can merge (newer wins) or replace all data.</small>"
-            )
+        backup_hint = QLabel(
+            "<small>Export as .json or .stickynotes zip. "
+            "Import can merge (newer wins) or replace all data.</small>"
         )
+        backup_hint.setWordWrap(True)
+        backup_hint.setMaximumWidth(_CONTENT_WIDTH - 48)
+        bl.addWidget(backup_hint)
         la.addWidget(bg)
 
-        la.addWidget(QLabel(self._shortcut_text()))
-        ab = QLabel("<small>Sticky Notes v3.5 \u2013 PyQt6</small>")
-        ab.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        la.addWidget(ab)
-        la.addStretch()
-        scroll.setWidget(body)
-        outer.addWidget(scroll, 1)
+        shortcuts = QLabel(self._shortcut_text())
+        shortcuts.setWordWrap(True)
+        shortcuts.setMaximumWidth(_CONTENT_WIDTH - 48)
+        la.addWidget(shortcuts)
+
+        version = QLabel(_version_footer())
+        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        la.addWidget(version)
+
+        outer.addLayout(la)
 
         btn_row = QHBoxLayout()
         ba = QPushButton("Apply && Close")
@@ -158,6 +175,10 @@ class SettingsDialog(QDialog):
         btn_row.addWidget(ba)
         btn_row.addWidget(bc)
         outer.addLayout(btn_row)
+
+        self.setMinimumWidth(_CONTENT_WIDTH)
+        self.adjustSize()
+        self.setFixedSize(self.size())
 
     def _export(self) -> None:
         if self._on_export:
