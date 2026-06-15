@@ -94,7 +94,7 @@ def is_private(note: dict) -> bool:
 
 
 def private_preview_text() -> str:
-    return "Private note — click to reveal"
+    return "Private note — hold to reveal"
 
 
 def dock_popup_preview_text() -> str:

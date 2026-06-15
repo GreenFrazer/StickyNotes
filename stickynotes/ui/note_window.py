@@ -285,7 +285,8 @@ class NoteWindow(QWidget):
         self._private_overlay = QWidget(self.editor)
         self._private_overlay.setObjectName("privateOverlay")
         self._private_overlay.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._private_overlay.mousePressEvent = self._reveal_private  # type: ignore[method-assign]
+        self._private_overlay.mousePressEvent = self._private_overlay_press  # type: ignore[method-assign]
+        self._private_overlay.mouseReleaseEvent = self._private_overlay_release  # type: ignore[method-assign]
         ov_lo = QVBoxLayout(self._private_overlay)
         ov_lo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._overlay_lbl = QLabel(
@@ -294,6 +295,9 @@ class NoteWindow(QWidget):
         self._overlay_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._overlay_lbl.setWordWrap(True)
         self._overlay_lbl.setObjectName("privateOverlayLabel")
+        self._overlay_lbl.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
         ov_lo.addWidget(self._overlay_lbl)
 
         self.colour_row = QWidget(self)
@@ -632,14 +636,23 @@ class NoteWindow(QWidget):
         set_button_icon(self.btn_copy, "check", 16)
         self._copy_revert.start()
 
-    def _reveal_private(self, _e=None) -> None:
+    def _private_overlay_press(self, e: QMouseEvent) -> None:
+        if e.button() != Qt.MouseButton.LeftButton:
+            return
+        self._private_overlay.grabMouse()
         self._revealed = True
         self._apply_private_state()
-        self._editing = True
-        self.editor.setFocus()
-        self._expand_for_editing()
+
+    def _private_overlay_release(self, e: QMouseEvent) -> None:
+        if e.button() != Qt.MouseButton.LeftButton:
+            return
+        if self._private_overlay.mouseGrabber() is self._private_overlay:
+            self._private_overlay.releaseMouse()
+        self._hide_private_content()
 
     def _hide_private_content(self) -> None:
+        if self._private_overlay.mouseGrabber() is self._private_overlay:
+            self._private_overlay.releaseMouse()
         self._revealed = False
         self._apply_private_state()
 
@@ -669,7 +682,7 @@ class NoteWindow(QWidget):
             self.editor.setReadOnly(True)
         else:
             self._private_overlay.hide()
-            self.editor.setReadOnly(False)
+            self.editor.setReadOnly(is_private(self.note_data))
         self._update_ts()
         self._update_overlay_style()
         self.note_data_changed.emit(self.note_id)
@@ -810,10 +823,6 @@ class NoteWindow(QWidget):
         priv.setCheckable(True)
         priv.setChecked(is_private(self.note_data))
         priv.triggered.connect(self._set_private)
-        if is_private(self.note_data) and self._revealed:
-            m.addAction("\U0001F648  Hide content").triggered.connect(
-                self._hide_private_content
-            )
         m.addSeparator()
         cm = m.addMenu("\U0001F3A8  Change Colour")
         for name in NOTE_COLOURS:
@@ -1088,6 +1097,8 @@ class NoteWindow(QWidget):
 
     def changeEvent(self, event) -> None:
         if event.type() == QEvent.Type.ActivationChange and not self.isActiveWindow():
+            if is_private(self.note_data) and self._revealed:
+                self._hide_private_content()
             if self._editing or self.height() > self._rest_h:
                 self._schedule_end_editing(force=True)
         super().changeEvent(event)

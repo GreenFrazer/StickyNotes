@@ -5,6 +5,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from PyQt6.QtCore import Qt
+from PyQt6.QtTest import QTest
 
 from stickynotes.models import private_preview_text
 from stickynotes.storage import StorageManager
@@ -40,6 +42,20 @@ def test_private_masking(note_window: NoteWindow, qtbot) -> None:
     assert w._private_overlay.isVisible()
     assert w.editor.isReadOnly()
     assert private_preview_text() in w._overlay_lbl.text()
+
+
+def test_private_hold_to_reveal(note_window: NoteWindow, qtbot) -> None:
+    w = note_window
+    w.note_data["private"] = True
+    w._revealed = False
+    w._apply_private_state()
+    QTest.mousePress(w._private_overlay, Qt.MouseButton.LeftButton)
+    assert not w._private_overlay.isVisible()
+    assert w._revealed
+    assert w.editor.isReadOnly()
+    QTest.mouseRelease(w._private_overlay, Qt.MouseButton.LeftButton)
+    assert w._private_overlay.isVisible()
+    assert not w._revealed
 
 
 def test_compact_mode_hides_editor(note_window: NoteWindow) -> None:
