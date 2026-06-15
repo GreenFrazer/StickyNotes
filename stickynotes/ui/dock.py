@@ -919,43 +919,64 @@ class DockWidget(QWidget):
             self._file_popup.deleteLater()
             self._file_popup = None
 
-    def _place_hidden(self) -> None:
+    def _set_hidden_size_constraints(self) -> None:
+        if self._pos == "left":
+            self.setFixedWidth(self.TRIGGER)
+        elif self._pos == "top":
+            self.setFixedHeight(self.TRIGGER)
+
+    def _set_shown_size_constraints(self) -> None:
+        if self._pos == "left":
+            self.setFixedWidth(self.THICK)
+        elif self._pos == "top":
+            self.setFixedHeight(self.THICK)
+        else:
+            self.setFixedWidth(self.THICK)
+
+    def _collapse_on_hide(self) -> bool:
+        # Windows clamps windows that extend past the left/top virtual-desktop edge.
+        return self._pos in ("left", "top")
+
+    def _shown_geo(self) -> QRect:
         g = self._screen_geo
         t = self.THICK
         if self._pos == "top":
-            self.resize(g.width(), t)
-            self.move(g.left(), g.top() - t)
-        elif self._pos == "left":
-            self.resize(t, g.height())
-            self.move(g.left() - t, g.top())
-        else:
-            self.resize(t, g.height())
-            self.move(g.right(), g.top())
+            return QRect(g.left(), g.top(), g.width(), t)
+        if self._pos == "left":
+            return QRect(g.left(), g.top(), t, g.height())
+        return QRect(g.right() - t, g.top(), t, g.height())
+
+    def _hidden_geo(self) -> QRect:
+        g = self._screen_geo
+        t = self.THICK
+        z = self.TRIGGER
+        if self._pos == "top":
+            return QRect(g.left(), g.top(), g.width(), z)
+        if self._pos == "left":
+            return QRect(g.left(), g.top(), z, g.height())
+        return QRect(g.right(), g.top(), t, g.height())
+
+    def _place_hidden(self) -> None:
+        if self._collapse_on_hide():
+            self._set_hidden_size_constraints()
+        self.setGeometry(self._hidden_geo())
         self.show()
+        if self._collapse_on_hide():
+            self.setGeometry(self._hidden_geo())
         self._shown = False
 
     def _vis_pos(self) -> QPoint:
-        g = self._screen_geo
-        if self._pos == "top":
-            return QPoint(g.left(), g.top())
-        if self._pos == "left":
-            return QPoint(g.left(), g.top())
-        return QPoint(g.right() - self.THICK, g.top())
+        return self._shown_geo().topLeft()
 
     def _hid_pos(self) -> QPoint:
-        g = self._screen_geo
-        t = self.THICK
-        if self._pos == "top":
-            return QPoint(g.left(), g.top() - t)
-        if self._pos == "left":
-            return QPoint(g.left() - t, g.top())
-        return QPoint(g.right(), g.top())
+        return self._hidden_geo().topLeft()
 
     def _on_screen_changed(self, *_args) -> None:
         if self._screen is not None:
             self._screen_geo = self._screen.availableGeometry()
         if self._shown:
-            self.move(self._vis_pos())
+            self._set_shown_size_constraints()
+            self.setGeometry(self._shown_geo())
         else:
             self._place_hidden()
 
@@ -966,7 +987,12 @@ class DockWidget(QWidget):
         self._hide_tmr.stop()
         self.show()
         self.raise_()
-        self._anim_to(self._vis_pos())
+        if self._collapse_on_hide():
+            self._set_shown_size_constraints()
+            self._anim_geom(self._hidden_geo(), self._shown_geo())
+        else:
+            self.setGeometry(self._hidden_geo())
+            self._anim_to(self._vis_pos())
 
     def _slide_out(self) -> None:
         if not self._shown:
@@ -990,7 +1016,11 @@ class DockWidget(QWidget):
             return
         self._shown = False
         self._dismiss_popups()
-        self._anim_to(self._hid_pos())
+        if self._collapse_on_hide():
+            anim = self._anim_geom(self._shown_geo(), self._hidden_geo())
+            anim.finished.connect(self._set_hidden_size_constraints)
+        else:
+            self._anim_to(self._hid_pos())
 
     def _anim_to(self, tgt: QPoint) -> None:
         if self._anim and self._anim.state() == QPropertyAnimation.State.Running:
@@ -1001,6 +1031,17 @@ class DockWidget(QWidget):
         self._anim.setEndValue(tgt)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._anim.start()
+
+    def _anim_geom(self, start: QRect, end: QRect) -> QPropertyAnimation:
+        if self._anim and self._anim.state() == QPropertyAnimation.State.Running:
+            self._anim.stop()
+        self._anim = QPropertyAnimation(self, b"geometry")
+        self._anim.setDuration(self.ANIM_MS)
+        self._anim.setStartValue(start)
+        self._anim.setEndValue(end)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.start()
+        return self._anim
 
     def _cursor_near_trigger(self, c: QPoint) -> bool:
         g = self._screen_geo

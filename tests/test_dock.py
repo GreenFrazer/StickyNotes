@@ -89,6 +89,65 @@ def test_poll_mouse_same_cursor_skips_interval_reset(
     assert len(set_interval_calls) == count_after_first
 
 
+def test_left_dock_hidden_geometry_collapses_at_screen_edge(qapp) -> None:
+    geo = QRect(-1920, 0, 1920, 1080)
+    dock = DockWidget(
+        position="left",
+        dark_mode=False,
+        screen_geo=geo,
+        content_getter=lambda _nid: "",
+    )
+    dock._poll.stop()
+    dock._hide_tmr.stop()
+    try:
+        dock._place_hidden()
+        hidden = dock.geometry()
+        assert hidden.x() == geo.left()
+        assert hidden.width() <= dock.TRIGGER
+        assert hidden.height() == geo.height()
+    finally:
+        dock.destroy_dock()
+
+
+def test_top_dock_hidden_geometry_collapses_at_screen_edge(qapp) -> None:
+    geo = QRect(0, -1080, 1920, 1080)
+    dock = DockWidget(
+        position="top",
+        dark_mode=False,
+        screen_geo=geo,
+        content_getter=lambda _nid: "",
+    )
+    dock._poll.stop()
+    dock._hide_tmr.stop()
+    try:
+        dock._place_hidden()
+        hidden = dock.geometry()
+        assert hidden.y() == geo.top()
+        assert hidden.height() <= dock.TRIGGER
+        assert hidden.width() == geo.width()
+    finally:
+        dock.destroy_dock()
+
+
+def test_right_dock_hidden_geometry_slides_off_screen(qapp) -> None:
+    geo = QRect(0, 0, 1920, 1080)
+    dock = DockWidget(
+        position="right",
+        dark_mode=False,
+        screen_geo=geo,
+        content_getter=lambda _nid: "",
+    )
+    dock._poll.stop()
+    dock._hide_tmr.stop()
+    try:
+        dock._place_hidden()
+        hidden = dock.geometry()
+        assert hidden.x() == geo.right()
+        assert hidden.width() == dock.THICK
+    finally:
+        dock.destroy_dock()
+
+
 def test_remove_note_card(dock: DockWidget) -> None:
     n1 = _make_note("Keep")
     n2 = _make_note("Remove")
