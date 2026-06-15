@@ -17,6 +17,7 @@ GLYPHS: dict[str, str] = {
     "pin": "\U0001F4CC",
     "unpin": "\U0001F4CD",
     "close": "\u2715",
+    "trash": "\U0001F5D1",
     "check": "\u2713",
     "pin_file": "\U0001F4CE",
     "plus": "\u2795",

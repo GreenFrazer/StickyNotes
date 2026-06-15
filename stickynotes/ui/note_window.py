@@ -112,6 +112,7 @@ class NoteWindow(QWidget):
     request_duplicate = pyqtSignal(str)
     note_data_changed = pyqtSignal(str)
     TB = 28
+    CLOSE_HOLD_MS = 600
 
     def __init__(
         self,
@@ -146,6 +147,11 @@ class NoteWindow(QWidget):
         self._copy_revert.setSingleShot(True)
         self._copy_revert.setInterval(1000)
         self._copy_revert.timeout.connect(self._reset_copy_icon)
+        self._close_delete_armed = False
+        self._close_hold_timer = QTimer(self)
+        self._close_hold_timer.setSingleShot(True)
+        self._close_hold_timer.setInterval(self.CLOSE_HOLD_MS)
+        self._close_hold_timer.timeout.connect(self._close_hold_timeout)
         self._checklist_syncing = False
         self._checklist_editing_item: QListWidgetItem | None = None
         self._track_user_resize = False
@@ -215,8 +221,9 @@ class NoteWindow(QWidget):
 
         self.btn_close = QPushButton(self.title_bar)
         self.btn_close.setFixedSize(24, 24)
-        self.btn_close.setToolTip("Hide note")
-        self.btn_close.clicked.connect(self._hide_note)
+        self.btn_close.setToolTip("Hide note (hold to delete)")
+        self.btn_close.mousePressEvent = self._close_btn_press  # type: ignore[method-assign]
+        self.btn_close.mouseReleaseEvent = self._close_btn_release  # type: ignore[method-assign]
         self.btn_close.setObjectName("titleBtn")
         set_button_icon(self.btn_close, "close", 16)
 
@@ -354,7 +361,10 @@ class NoteWindow(QWidget):
         set_button_icon(self.btn_compact, compact_name, 16)
         pin_name = "pin" if self.note_data.get("always_on_top") else "unpin"
         set_button_icon(self.btn_pin, pin_name, 16)
-        set_button_icon(self.btn_close, "close", 16)
+        if self._close_delete_armed:
+            self._arm_close_delete_visual()
+        else:
+            self._reset_close_btn_visual()
         for btn in (self.btn_copy, self.btn_lock, self.btn_compact, self.btn_pin, self.btn_close):
             btn.setStyleSheet(title_button_stylesheet(size=24))
 
@@ -1232,9 +1242,48 @@ class NoteWindow(QWidget):
             set_button_icon(self.btn_compact, "compact", 16)
             self.btn_compact.setToolTip("Compact")
 
+    def _delete_note_now(self) -> None:
+        self.request_delete.emit(self.note_id)
+
+    def _arm_close_delete_visual(self) -> None:
+        set_button_icon(self.btn_close, "trash", 16)
+        self.btn_close.setToolTip("Release to delete")
+
+    def _reset_close_btn_visual(self) -> None:
+        self._close_delete_armed = False
+        set_button_icon(self.btn_close, "close", 16)
+        self.btn_close.setToolTip("Hide note (hold to delete)")
+
+    def _close_btn_press(self, e: QMouseEvent) -> None:
+        if e.button() != Qt.MouseButton.LeftButton:
+            return
+        self._close_delete_armed = False
+        self._reset_close_btn_visual()
+        self._close_hold_timer.start()
+        self.btn_close.grabMouse()
+
+    def _close_hold_timeout(self) -> None:
+        self._close_delete_armed = True
+        self._arm_close_delete_visual()
+
+    def _close_btn_release(self, e: QMouseEvent) -> None:
+        if e.button() != Qt.MouseButton.LeftButton:
+            return
+        if self.btn_close.mouseGrabber() is self.btn_close:
+            self.btn_close.releaseMouse()
+        on_button = self.btn_close.rect().contains(e.position().toPoint())
+        timer_active = self._close_hold_timer.isActive()
+        self._close_hold_timer.stop()
+        if self._close_delete_armed:
+            if on_button:
+                self._delete_note_now()
+        elif timer_active and on_button:
+            self._hide_note()
+        self._reset_close_btn_visual()
+
     def _hide_note(self) -> None:
         if not self.get_content().strip():
-            self.request_delete.emit(self.note_id)
+            self._delete_note_now()
             return
         self.note_data["visible"] = False
         self._persist()

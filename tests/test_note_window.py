@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtTest import QTest
 
 from stickynotes.models import private_preview_text
@@ -112,6 +112,56 @@ def test_tags_edit_persists_from_storage_dict(qapp, qtbot, temp_paths) -> None:
 
     reloaded = StorageManager(temp_paths, restore_prompt=lambda: False)
     assert reloaded.get_all_notes()[nd["id"]]["tags"] == ["work", "urgent"]
+
+
+def test_close_short_click_hides(note_window: NoteWindow, qtbot) -> None:
+    w = note_window
+    w.editor.setPlainText("Keep me")
+    deleted: list[str] = []
+    w.request_delete.connect(deleted.append)
+
+    QTest.mousePress(w.btn_close, Qt.MouseButton.LeftButton)
+    QTest.mouseRelease(w.btn_close, Qt.MouseButton.LeftButton)
+    qtbot.wait(100)
+
+    assert not w.isVisible()
+    assert w.note_data["visible"] is False
+    assert deleted == []
+    assert w.note_id in w.storage.get_all_notes()
+
+
+def test_close_long_press_deletes(note_window: NoteWindow, qtbot) -> None:
+    w = note_window
+    w.editor.setPlainText("Delete me")
+
+    with qtbot.waitSignal(w.request_delete, timeout=1000) as blocker:
+        QTest.mousePress(w.btn_close, Qt.MouseButton.LeftButton)
+        qtbot.wait(650)
+        QTest.mouseRelease(w.btn_close, Qt.MouseButton.LeftButton)
+
+    assert blocker.args == [w.note_id]
+
+
+def test_close_long_press_cancelled(note_window: NoteWindow, qtbot) -> None:
+    w = note_window
+    w.editor.setPlainText("Stay visible")
+    deleted: list[str] = []
+    w.request_delete.connect(deleted.append)
+
+    QTest.mousePress(w.btn_close, Qt.MouseButton.LeftButton)
+    qtbot.wait(650)
+    assert w._close_delete_armed
+    QTest.mouseRelease(
+        w.btn_close,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        QPoint(-5, -5),
+    )
+    qtbot.wait(100)
+
+    assert deleted == []
+    assert w.isVisible()
+    assert w.note_data.get("visible", True) is not False
 
 
 def test_colour_change_persists_from_storage_dict(qapp, qtbot, temp_paths) -> None:
