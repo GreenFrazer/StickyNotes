@@ -383,24 +383,34 @@ def menu_stylesheet(*, dark: bool = False) -> str:
 def dialog_stylesheet(dark: bool = False) -> str:
     if dark:
         return f"""
-            QDialog{{background:#2d2d2d;color:#e8e8e8;{_font(FONT_BODY)}}}
+            QDialog,QWidget{{background:#2d2d2d;color:#e8e8e8;{_font(FONT_BODY)}}}
+            QScrollArea{{background:#2d2d2d;border:none;}}
             QLabel{{color:#e8e8e8;background:transparent;}}
-            QGroupBox{{color:#e8e8e8;font-weight:600;padding-top:14px;border:1px solid #555;border-radius:{RADIUS_SM}px;margin-top:8px;}}
+            QGroupBox{{color:#e8e8e8;font-weight:600;padding-top:14px;border:1px solid #555;border-radius:{RADIUS_SM}px;margin-top:8px;background:transparent;}}
             QGroupBox::title{{subcontrol-origin:margin;left:10px;padding:0 4px;}}
-            QRadioButton{{color:#e8e8e8;}}
-            QCheckBox{{color:#e8e8e8;}}
+            QRadioButton{{color:#e8e8e8;background:transparent;}}
+            QCheckBox{{color:#e8e8e8;background:transparent;}}
+            QComboBox{{background:#3a3a3a;color:#e8e8e8;border:1px solid #555;border-radius:4px;padding:4px 8px;}}
+            QComboBox QAbstractItemView{{background:#3a3a3a;color:#e8e8e8;selection-background-color:{PRIMARY};}}
+            QLineEdit{{background:#3a3a3a;color:#e8e8e8;border:1px solid #555;border-radius:4px;padding:6px 8px;}}
+            QListWidget{{background:#3a3a3a;color:#e8e8e8;border:1px solid #555;border-radius:4px;}}
             QPushButton{{background:{PRIMARY};color:{ON_DARK};border:none;border-radius:9999px;padding:8px 22px;{_font(FONT_CAPTION)}}}
             QPushButton:hover{{background:{PRIMARY_HOVER};}}
             #cancelBtn{{background:#555;color:#eee;border-radius:{RADIUS_SM}px;}}
             #cancelBtn:hover{{background:#666;}}
         """
     return f"""
-        QDialog{{background:{CANVAS_PARCHMENT};color:{INK};{_font(FONT_BODY)}}}
+        QDialog,QWidget{{background:{CANVAS_PARCHMENT};color:{INK};{_font(FONT_BODY)}}}
+        QScrollArea{{background:{CANVAS_PARCHMENT};border:none;}}
         QLabel{{color:{INK};background:transparent;}}
-        QGroupBox{{color:{INK};font-weight:600;padding-top:14px;border:1px solid {HAIRLINE};border-radius:{RADIUS_SM}px;margin-top:8px;}}
+        QGroupBox{{color:{INK};font-weight:600;padding-top:14px;border:1px solid {HAIRLINE};border-radius:{RADIUS_SM}px;margin-top:8px;background:transparent;}}
         QGroupBox::title{{subcontrol-origin:margin;left:10px;padding:0 4px;}}
-        QRadioButton{{color:{INK};}}
-        QCheckBox{{color:{INK};}}
+        QRadioButton{{color:{INK};background:transparent;}}
+        QCheckBox{{color:{INK};background:transparent;}}
+        QComboBox{{background:#fff;color:{INK};border:1px solid {HAIRLINE};border-radius:4px;padding:4px 8px;}}
+        QComboBox QAbstractItemView{{background:#fff;color:{INK};selection-background-color:{PRIMARY};selection-color:{ON_DARK};}}
+        QLineEdit{{background:#fff;color:{INK};border:1px solid {HAIRLINE};border-radius:4px;padding:6px 8px;}}
+        QListWidget{{background:#fff;color:{INK};border:1px solid {HAIRLINE};border-radius:4px;}}
         QPushButton{{background:{PRIMARY};color:{ON_DARK};border:none;border-radius:9999px;padding:8px 22px;{_font(FONT_CAPTION)}}}
         QPushButton:hover{{background:{PRIMARY_HOVER};}}
         #cancelBtn{{background:#ddd;color:{INK_MUTED_80};border-radius:{RADIUS_SM}px;}}
