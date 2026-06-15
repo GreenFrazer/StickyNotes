@@ -1,12 +1,16 @@
-# -*- mode: python ; coding: utf-8 -*-
+﻿# -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec for Sticky Notes (Windows)
 # Run: packaging/windows/build.ps1
+import os
+
+ROOT = os.path.abspath(os.path.join(SPECPATH, '..', '..'))
+ICON = os.path.join(ROOT, 'packaging', 'windows', 'StickyNotes.ico')
 
 block_cipher = None
 
 a = Analysis(
-    ['main.py'],
-    pathex=[],
+    [os.path.join(ROOT, 'main.py')],
+    pathex=[ROOT],
     binaries=[],
     datas=[],
     hiddenimports=['stickynotes', 'stickynotes.platform.windows.hotkeys'],
@@ -41,5 +45,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='packaging/windows/StickyNotes.ico',
+    icon=ICON,
 )
