@@ -14,7 +14,13 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from stickynotes.models import fmt_dt, is_private, note_title, private_preview_text
+from stickynotes.models import (
+    fmt_dt,
+    is_private,
+    normalize_tags,
+    note_title,
+    private_preview_text,
+)
 from stickynotes.theme import dialog_stylesheet
 
 
@@ -104,9 +110,10 @@ class SearchDialog(QDialog):
             return
         matches: list[tuple[str, dict[str, Any], str]] = []
         for nid, nd in self._notes.items():
-            content = self._content_getter(nid)
+            raw_content = self._content_getter(nid)
+            content = raw_content if isinstance(raw_content, str) else str(raw_content or "")
             title = note_title(content)
-            tags = nd.get("tags", [])
+            tags = normalize_tags(nd.get("tags", []))
             tags_text = " ".join(tags)
             haystack = f"{title}\n{content}\n{tags_text}".lower()
             if query not in haystack:

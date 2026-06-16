@@ -286,6 +286,23 @@ def test_search_dialog_masks_private_until_selected(qapp, qtbot) -> None:
     assert "Private" in item.text()
 
 
+def test_search_dialog_tolerates_invalid_tags_and_content(qapp, qtbot) -> None:
+    note = StorageManager.default_note()
+    note["content"] = "Find me alpha"
+    note["tags"] = [123, "work"]
+    notes = {note["id"]: note}
+
+    dlg = SearchDialog(notes, lambda nid: notes[nid].get("content"))
+    qtbot.addWidget(dlg)
+    dlg._input.setText("alpha")
+    qtbot.wait(400)
+    assert dlg._results.count() == 1
+
+    dlg._input.setText("work")
+    qtbot.wait(400)
+    assert dlg._results.count() == 1
+
+
 def test_search_dialog_show_and_focus_reentrant(qapp, qtbot) -> None:
     note = StorageManager.default_note()
     note["content"] = "Find me alpha beta"
