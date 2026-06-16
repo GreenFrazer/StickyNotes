@@ -135,14 +135,21 @@ class SearchDialog(QDialog):
         matches.sort(key=lambda m: m[1].get("modified_at", ""), reverse=True)
         for nid, nd, preview in matches:
             colour = nd.get("colour", "yellow")
-            title = note_title(self._content_getter(nid))
-            if is_private(nd) and nid not in self._revealed_private:
+            raw_title_content = self._content_getter(nid)
+            title_content = (
+                raw_title_content
+                if isinstance(raw_title_content, str)
+                else str(raw_title_content or "")
+            )
+            title = note_title(title_content)
+            needs_reveal = is_private(nd) and nid not in self._revealed_private
+            if needs_reveal:
                 title = "Private note"
             mod = fmt_dt(nd.get("modified_at", ""))
             label = f"[{colour}] {title}  \u00B7  {mod}\n{preview}"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, nid)
-            item.setData(Qt.ItemDataRole.UserRole + 1, is_private(nd))
+            item.setData(Qt.ItemDataRole.UserRole + 1, needs_reveal)
             self._results.addItem(item)
         count = len(matches)
         self._status.setText(f"{count} result{'s' if count != 1 else ''}")
@@ -153,10 +160,11 @@ class SearchDialog(QDialog):
             return
         if item.data(Qt.ItemDataRole.UserRole + 1):
             self._revealed_private.add(nid)
-            self._run_search()
+            # Refresh after the click handler returns; clearing items here can crash Qt on Windows.
+            QTimer.singleShot(0, self._run_search)
             return
         self.note_selected.emit(nid)
-        self.accept()
+        QTimer.singleShot(0, self.accept)
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:

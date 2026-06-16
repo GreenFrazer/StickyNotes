@@ -159,6 +159,12 @@ class AppManager:
 
     def _focus_searched_note(self, nid: str) -> None:
         n = self.notes.get(nid)
+        if not n:
+            nd = self.storage.get_all_notes().get(nid)
+            if not nd:
+                return
+            self._spawn(nd)
+            n = self.notes.get(nid)
         if n:
             n.show_note()
             n.raise_()
