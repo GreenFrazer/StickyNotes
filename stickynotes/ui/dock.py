@@ -18,7 +18,7 @@ from PyQt6.QtCore import (
     pyqtSignal,
     QEvent,
 )
-from PyQt6.QtGui import QCursor, QDragEnterEvent, QDragMoveEvent, QDropEvent
+from PyQt6.QtGui import QCursor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -48,6 +48,7 @@ from stickynotes.theme import (
     TITLE_BAR_COLOURS,
     colour_dot_frame_stylesheet,
     copy_button_stylesheet,
+    dock_file_icon_stylesheet,
     dock_file_indicator_stylesheet,
     dock_file_label_stylesheet,
     dock_note_indicator_stylesheet,
@@ -58,7 +59,10 @@ from stickynotes.theme import (
     menu_stylesheet,
     note_popup_stylesheet,
 )
+from stickynotes.ui.file_icons import file_icon_pixmap
 from stickynotes.ui.icons import set_button_icon
+
+DOCK_FILE_ICON_SIZE = 28
 
 
 def _make_dock_btn(icon_name: str, label_text: str, signal) -> QWidget:
@@ -337,8 +341,23 @@ class DockFilePopup(QWidget):
         label = dock_file_label(path, d.get("label"))
         badge = dock_file_badge(path)
         exists = bool(path) and os.path.isfile(path)
-        title = QLabel(f"{badge}  {label}")
+        title_row = QWidget()
+        title_lo = QHBoxLayout(title_row)
+        title_lo.setContentsMargins(0, 0, 0, 0)
+        title_lo.setSpacing(6)
+        icon_lbl = QLabel()
+        icon_lbl.setObjectName("fpIcon")
+        pixmap = file_icon_pixmap(path, size=20)
+        if pixmap is not None and not pixmap.isNull():
+            icon_lbl.setPixmap(pixmap)
+            icon_lbl.setStyleSheet(dock_file_icon_stylesheet())
+        else:
+            icon_lbl.setText(badge)
+            icon_lbl.setStyleSheet(dock_file_label_stylesheet(badge=True))
+        title = QLabel(label)
         title.setObjectName("fpTitle")
+        title_lo.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+        title_lo.addWidget(title, 1, Qt.AlignmentFlag.AlignVCenter)
         path_lbl = QLabel(path)
         path_lbl.setObjectName("fpPath")
         path_lbl.setWordWrap(True)
@@ -347,7 +366,7 @@ class DockFilePopup(QWidget):
         lo = QVBoxLayout(self)
         lo.setContentsMargins(10, 8, 10, 8)
         lo.setSpacing(2)
-        lo.addWidget(title)
+        lo.addWidget(title_row)
         lo.addWidget(path_lbl, 1)
         lo.addWidget(hint)
         self.setStyleSheet(file_popup_stylesheet(missing=not exists))
@@ -392,12 +411,19 @@ class DockFileIndicator(QFrame):
 
     def _apply_appearance(self, shortcut_data: dict[str, Any]) -> None:
         self._path = shortcut_data.get("path", "")
-        badge = dock_file_badge(self._path)
         label = dock_file_label(self._path, shortcut_data.get("label"))
         truncated = label[:6] + "\u2026" if len(label) > 7 else label
-        self.lbl_badge.setText(badge)
+        pixmap = file_icon_pixmap(self._path, size=DOCK_FILE_ICON_SIZE)
+        if pixmap is not None and not pixmap.isNull():
+            self.lbl_badge.setPixmap(pixmap)
+            self.lbl_badge.setText("")
+            self.lbl_badge.setStyleSheet(dock_file_icon_stylesheet())
+        else:
+            self.lbl_badge.setPixmap(QPixmap())
+            badge = dock_file_badge(self._path)
+            self.lbl_badge.setText(badge)
+            self.lbl_badge.setStyleSheet(dock_file_label_stylesheet(badge=True))
         self.lbl_name.setText(truncated)
-        self.lbl_badge.setStyleSheet(dock_file_label_stylesheet(badge=True))
         self.lbl_name.setStyleSheet(dock_file_label_stylesheet(badge=False))
         exists = bool(self._path) and os.path.isfile(self._path)
         self.setStyleSheet(dock_file_indicator_stylesheet(exists=exists))

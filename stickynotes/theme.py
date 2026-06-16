@@ -360,6 +360,10 @@ def dock_file_label_stylesheet(*, badge: bool = True) -> str:
     return f"{_font(FONT_FINE)}color:{BODY_MUTED};background:transparent;"
 
 
+def dock_file_icon_stylesheet() -> str:
+    return "background:transparent;"
+
+
 def dock_preview_label_stylesheet() -> str:
     return f"{_font(FONT_FINE)}color:{INK_MUTED_80};background:transparent;"
 
