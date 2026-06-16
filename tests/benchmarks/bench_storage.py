@@ -37,7 +37,15 @@ def run_benchmarks() -> list[dict]:
             storage = StorageManager(paths, restore_prompt=lambda: False)
             _populate(storage, count, content)
 
+            touch_counter = [0]
+
             def do_save(s=storage) -> None:
+                touch_counter[0] += 1
+                nid = next(iter(s._data.get("notes", {})))
+                s._data["notes"][nid]["content"] = (
+                    f"{content} #{touch_counter[0]} touch"
+                )
+                s._dirty = True
                 s.save()
 
             results.append(

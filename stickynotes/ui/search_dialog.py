@@ -108,7 +108,7 @@ class SearchDialog(QDialog):
         if not query:
             self._status.setText("")
             return
-        matches: list[tuple[str, dict[str, Any], str]] = []
+        matches: list[tuple[str, dict[str, Any], str, str]] = []
         for nid, nd in self._notes.items():
             raw_content = self._content_getter(nid)
             content = raw_content if isinstance(raw_content, str) else str(raw_content or "")
@@ -131,17 +131,10 @@ class SearchDialog(QDialog):
                     preview = "Tags: " + ", ".join(f"#{t}" for t in matching_tags)
                 else:
                     preview = content[:80].replace("\n", " ") or ""
-            matches.append((nid, nd, preview))
+            matches.append((nid, nd, preview, title))
         matches.sort(key=lambda m: m[1].get("modified_at", ""), reverse=True)
-        for nid, nd, preview in matches:
+        for nid, nd, preview, title in matches:
             colour = nd.get("colour", "yellow")
-            raw_title_content = self._content_getter(nid)
-            title_content = (
-                raw_title_content
-                if isinstance(raw_title_content, str)
-                else str(raw_title_content or "")
-            )
-            title = note_title(title_content)
             needs_reveal = is_private(nd) and nid not in self._revealed_private
             if needs_reveal:
                 title = "Private note"

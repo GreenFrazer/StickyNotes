@@ -1,207 +1,207 @@
 {
-  "generated_at": "2026-06-14T17:09:44.373818+00:00",
+  "generated_at": "2026-06-16T12:23:48.902103+00:00",
   "results": [
     {
       "name": "storage_save",
       "scenario": "1_notes_small",
-      "median_ms": 0.0002,
-      "p95_ms": 0.0003,
+      "median_ms": 0.0003,
+      "p95_ms": 0.0007,
       "iterations": 30
     },
     {
       "name": "storage_load",
       "scenario": "1_notes_small",
-      "median_ms": 0.0408,
-      "p95_ms": 0.0468,
+      "median_ms": 0.3449,
+      "p95_ms": 0.5238,
       "iterations": 20
     },
     {
       "name": "storage_save",
       "scenario": "1_notes_large",
-      "median_ms": 0.0002,
-      "p95_ms": 0.0003,
+      "median_ms": 0.0004,
+      "p95_ms": 0.0014,
       "iterations": 30
     },
     {
       "name": "storage_load",
       "scenario": "1_notes_large",
-      "median_ms": 0.0511,
-      "p95_ms": 0.055,
+      "median_ms": 0.3973,
+      "p95_ms": 0.5575,
       "iterations": 20
     },
     {
       "name": "storage_save",
       "scenario": "10_notes_small",
-      "median_ms": 0.0002,
-      "p95_ms": 0.0003,
+      "median_ms": 0.0004,
+      "p95_ms": 0.0005,
       "iterations": 30
     },
     {
       "name": "storage_load",
       "scenario": "10_notes_small",
-      "median_ms": 0.091,
-      "p95_ms": 0.0965,
+      "median_ms": 0.9261,
+      "p95_ms": 3.1081,
       "iterations": 20
     },
     {
       "name": "storage_save",
       "scenario": "10_notes_large",
+      "median_ms": 0.0004,
+      "p95_ms": 0.0006,
+      "iterations": 30
+    },
+    {
+      "name": "storage_load",
+      "scenario": "10_notes_large",
+      "median_ms": 0.847,
+      "p95_ms": 1.7761,
+      "iterations": 20
+    },
+    {
+      "name": "storage_save",
+      "scenario": "50_notes_small",
+      "median_ms": 0.0002,
+      "p95_ms": 0.0007,
+      "iterations": 10
+    },
+    {
+      "name": "storage_load",
+      "scenario": "50_notes_small",
+      "median_ms": 0.9163,
+      "p95_ms": 1.8011,
+      "iterations": 20
+    },
+    {
+      "name": "storage_save",
+      "scenario": "50_notes_large",
       "median_ms": 0.0003,
-      "p95_ms": 0.0003,
-      "iterations": 30
-    },
-    {
-      "name": "storage_load",
-      "scenario": "10_notes_large",
-      "median_ms": 0.1975,
-      "p95_ms": 0.206,
-      "iterations": 20
-    },
-    {
-      "name": "storage_save",
-      "scenario": "50_notes_small",
-      "median_ms": 0.0002,
-      "p95_ms": 0.0003,
-      "iterations": 10
-    },
-    {
-      "name": "storage_load",
-      "scenario": "50_notes_small",
-      "median_ms": 0.2897,
-      "p95_ms": 0.3301,
-      "iterations": 20
-    },
-    {
-      "name": "storage_save",
-      "scenario": "50_notes_large",
-      "median_ms": 0.0002,
-      "p95_ms": 0.0003,
+      "p95_ms": 0.0009,
       "iterations": 10
     },
     {
       "name": "storage_load",
       "scenario": "50_notes_large",
-      "median_ms": 0.836,
-      "p95_ms": 0.8778,
+      "median_ms": 3.1299,
+      "p95_ms": 4.0446,
       "iterations": 20
     },
     {
       "name": "storage_save",
       "scenario": "100_notes_small",
-      "median_ms": 0.0002,
-      "p95_ms": 0.0003,
+      "median_ms": 0.0004,
+      "p95_ms": 0.0011,
       "iterations": 10
     },
     {
       "name": "storage_load",
       "scenario": "100_notes_small",
-      "median_ms": 0.5568,
-      "p95_ms": 0.5642,
+      "median_ms": 3.1625,
+      "p95_ms": 3.5444,
       "iterations": 5
     },
     {
       "name": "storage_save",
       "scenario": "100_notes_large",
-      "median_ms": 0.0003,
-      "p95_ms": 0.0005,
+      "median_ms": 0.0004,
+      "p95_ms": 0.0009,
       "iterations": 10
     },
     {
       "name": "storage_load",
       "scenario": "100_notes_large",
-      "median_ms": 1.654,
-      "p95_ms": 1.6842,
+      "median_ms": 17.1039,
+      "p95_ms": 19.0294,
       "iterations": 5
     },
     {
       "name": "dock_refresh_cards",
       "scenario": "0_notes",
-      "median_ms": 0.002,
-      "p95_ms": 0.0021,
+      "median_ms": 0.2035,
+      "p95_ms": 0.3323,
       "iterations": 30
     },
     {
       "name": "dock_refresh_cards",
       "scenario": "10_notes",
-      "median_ms": 1.7142,
-      "p95_ms": 1.91,
+      "median_ms": 14.9036,
+      "p95_ms": 22.2737,
       "iterations": 30
     },
     {
       "name": "dock_refresh_cards",
       "scenario": "50_notes",
-      "median_ms": 8.6897,
-      "p95_ms": 12.8941,
+      "median_ms": 72.3771,
+      "p95_ms": 91.7455,
       "iterations": 15
     },
     {
       "name": "note_expanded_height",
       "scenario": "1kb",
-      "median_ms": 0.3577,
-      "p95_ms": 0.3726,
+      "median_ms": 0.3292,
+      "p95_ms": 0.7667,
       "iterations": 50
     },
     {
       "name": "note_on_text",
       "scenario": "1kb",
-      "median_ms": 0.0052,
-      "p95_ms": 0.0055,
+      "median_ms": 0.0242,
+      "p95_ms": 0.0279,
       "iterations": 30
     },
     {
       "name": "note_expanded_height",
       "scenario": "10kb",
-      "median_ms": 3.5782,
-      "p95_ms": 3.6471,
+      "median_ms": 4.1793,
+      "p95_ms": 6.767,
       "iterations": 50
     },
     {
       "name": "note_on_text",
       "scenario": "10kb",
-      "median_ms": 0.0201,
-      "p95_ms": 0.0208,
+      "median_ms": 0.1426,
+      "p95_ms": 0.2001,
       "iterations": 30
     },
     {
       "name": "note_expanded_height",
       "scenario": "40_lines",
-      "median_ms": 0.1983,
-      "p95_ms": 0.201,
+      "median_ms": 0.4018,
+      "p95_ms": 0.5032,
       "iterations": 50
     },
     {
       "name": "note_on_text",
       "scenario": "40_lines",
-      "median_ms": 0.0046,
-      "p95_ms": 0.0049,
+      "median_ms": 0.0323,
+      "p95_ms": 0.0467,
       "iterations": 30
     },
     {
       "name": "dock_poll_mouse",
       "scenario": "10k_iterations",
-      "median_ms": 6.1816,
-      "p95_ms": 6.2843,
+      "median_ms": 20.5477,
+      "p95_ms": 29.9392,
       "iterations": 5
     },
     {
       "name": "scenario",
       "scenario": "bulk_load_50_notes",
-      "median_ms": 1296.8232,
-      "p95_ms": 1296.8232,
+      "median_ms": 1036.4544,
+      "p95_ms": 1036.4544,
       "iterations": 1
     },
     {
       "name": "scenario",
       "scenario": "screen_change_2x_create_docks",
-      "median_ms": 5.2192,
-      "p95_ms": 5.2192,
+      "median_ms": 27.6042,
+      "p95_ms": 27.6042,
       "iterations": 1
     },
     {
       "name": "scenario",
       "scenario": "typing_session_500_chars",
-      "median_ms": 50.2489,
-      "p95_ms": 70.209,
+      "median_ms": 123.5725,
+      "p95_ms": 218.0575,
       "iterations": 10
     }
   ]

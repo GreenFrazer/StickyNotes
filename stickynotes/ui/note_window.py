@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -113,6 +114,7 @@ class NoteWindow(QWidget):
     note_data_changed = pyqtSignal(str)
     TB = 28
     CLOSE_HOLD_MS = 600
+    META_REFRESH_MS = 100
 
     def __init__(
         self,
@@ -134,14 +136,23 @@ class NoteWindow(QWidget):
         self._drag_on = False
         self._drag_start = QPoint()
         self._editing = False
+        # Used to make expansion more robust when key handling causes transient
+        # focus changes between QTextEdit and its viewport.
+        self._editing_focus_active = False
+        # True while the user is actively typing (set on KeyPress, cleared on
+        # collapse). Guards against offscreen/test drivers reporting hasFocus=False.
+        self._keyboard_editing = False
         self._auto_resizing = False
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(500)
         self._save_timer.timeout.connect(self._persist)
+        self._last_meta_refresh = 0.0
         self._expand_timer = QTimer(self)
         self._expand_timer.setSingleShot(True)
-        self._expand_timer.setInterval(24)
+        # 0ms: fire in the very next event loop iteration so resize happens
+        # before the next Qt paint/layout pass without any perceptible delay.
+        self._expand_timer.setInterval(0)
         self._expand_timer.timeout.connect(self._expand_for_editing)
         self._copy_revert = QTimer(self)
         self._copy_revert.setSingleShot(True)
@@ -950,9 +961,19 @@ class NoteWindow(QWidget):
         self._save_timer.start()
 
     def _on_text(self) -> None:
-        self._update_ts()
+        now = time.monotonic()
+        if (now - self._last_meta_refresh) * 1000 >= self.META_REFRESH_MS:
+            self._last_meta_refresh = now
+            self._update_ts()
         if (
-            self.editor.hasFocus()
+            # Expand whenever focus is in the editor OR the user is actively
+            # typing (_keyboard_editing / _editing_focus_active). The latter
+            # catches the case where QTest/offscreen drivers report hasFocus()=
+            # False even while key events are being delivered to the widget.
+            (self.editor.hasFocus()
+            or self.editor.viewport().hasFocus()
+            or self._editing_focus_active
+            or self._keyboard_editing)
             and not self.note_data.get("checklist")
             and not self.note_data.get("compact")
             and not self._drag_on
@@ -1031,10 +1052,11 @@ class NoteWindow(QWidget):
         if self._drag_on or self.note_data.get("compact"):
             return
         self._editing = True
+        self._editing_focus_active = True
         self._expand_timer.start()
 
     def _editing_focus_within_note(self) -> bool:
-        if self.editor.hasFocus():
+        if self.editor.hasFocus() or self.editor.viewport().hasFocus():
             return True
         checklist_editor = self._checklist_editor_line_edit()
         return checklist_editor is not None and checklist_editor.hasFocus()
@@ -1064,6 +1086,8 @@ class NoteWindow(QWidget):
         self._end_edit_pending = False
         self._expand_timer.stop()
         self._editing = False
+        self._editing_focus_active = False
+        self._keyboard_editing = False
         self._collapse_to_rest()
 
     def _focus_within_note(self, widget: QWidget | None) -> bool:
@@ -1181,6 +1205,17 @@ class NoteWindow(QWidget):
                 and not self._drag_on
             ):
                 self._begin_editing_expand()
+            elif (
+                obj in editor_targets
+                and event.type() == QEvent.Type.KeyPress
+                and not self._drag_on
+            ):
+                # Key events reaching the editor mean the user is actively typing;
+                # begin expansion regardless of focus-reporting quirks.
+                self._keyboard_editing = True
+                self._begin_editing_expand()
+            elif obj is self.editor and event.type() == QEvent.Type.FocusIn:
+                self._editing_focus_active = True
             elif obj is self.editor and event.type() == QEvent.Type.FocusOut:
                 self._schedule_end_editing()
         return super().eventFilter(obj, event)

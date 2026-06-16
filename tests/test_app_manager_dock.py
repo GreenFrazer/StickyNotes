@@ -26,6 +26,9 @@ def _minimal_manager(
     mgr.notes = {note.note_id: note}
     mgr.docks = [dock]
     mgr._pending_note_updates = set()
+    mgr._last_dock_tags = ()
+    mgr._last_dock_shortcuts_signature = ()
+    mgr._last_dock_filter = ""
     mgr._notes_with_content = set()
     mgr._active_tag_filter = ""
     mgr._dark = False
@@ -63,9 +66,11 @@ def manager_setup(qapp, qtbot, temp_paths):
 def test_schedule_dock_refresh_debounced_only(manager_setup) -> None:
     mgr, note, dock = manager_setup
     nid = note.note_id
+    mgr.storage.set_note(nid, note.note_data)
     nd = dict(note.note_data)
     nd["content"] = note.editor.toPlainText()
     dock.refresh_cards({nid: nd}, [])
+    mgr._last_dock_shortcuts_signature = ()
     update_spy = MagicMock(wraps=dock.update_note_card)
     refresh_spy = MagicMock(wraps=dock.refresh_cards)
     dock.update_note_card = update_spy
@@ -77,7 +82,8 @@ def test_schedule_dock_refresh_debounced_only(manager_setup) -> None:
 
     mgr._dock_refresh_timer.stop()
     mgr._refresh_all_docks()
-    refresh_spy.assert_called()
+    update_spy.assert_called_once()
+    refresh_spy.assert_not_called()
 
 
 def test_private_note_display_content(manager_setup) -> None:

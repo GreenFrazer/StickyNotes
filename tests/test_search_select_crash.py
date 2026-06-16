@@ -90,3 +90,23 @@ def test_search_select_private_note_via_app_manager(qapp, qtbot) -> None:
     qtbot.wait(100)
 
     assert mgr.notes[nid].isVisible()
+
+
+def test_search_content_getter_called_once_per_note(qapp, qtbot) -> None:
+    note = StorageManager.default_note()
+    note["content"] = "alpha beta"
+    notes = {note["id"]: note}
+    calls: list[str] = []
+
+    def _getter(nid: str) -> str:
+        calls.append(nid)
+        return notes[nid]["content"]
+
+    dlg = SearchDialog(notes, _getter)
+    qtbot.addWidget(dlg)
+    dlg.show()
+    dlg._input.setText("alpha")
+    qtbot.wait(400)
+
+    assert dlg._results.count() == 1
+    assert calls == [note["id"]]

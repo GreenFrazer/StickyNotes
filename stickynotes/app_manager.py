@@ -55,6 +55,10 @@ class AppManager:
         self._dock_refresh_timer.setInterval(self.DOCK_REFRESH_MS)
         self._dock_refresh_timer.timeout.connect(self._refresh_all_docks)
         self._pending_note_updates: set[str] = set()
+        self._last_dock_tags: tuple[str, ...] = ()
+        self._last_dock_shortcuts_signature: tuple[tuple[str, str, str, str], ...] = ()
+        self._last_dock_filter = ""
+        self._last_tray_tags: tuple[str, ...] | None = None
         self._notes_with_content: set[str] = set()
         self._active_tag_filter = ""
         self._search_dialog: SearchDialog | None = None
@@ -127,17 +131,22 @@ class AppManager:
             tags.add(default)
         return sorted(tags)
 
-    def _rebuild_tray_tag_menu(self) -> None:
-        self._tray_new_in_tag.clear()
+    def _rebuild_tray_tag_menu(self, *, force: bool = False) -> bool:
         tags = self._all_known_tags()
+        tags_key = tuple(tags)
+        if not force and tags_key == self._last_tray_tags:
+            return False
+        self._last_tray_tags = tags_key
+        self._tray_new_in_tag.clear()
         if not tags:
             action = self._tray_new_in_tag.addAction("(No tags yet)")
             action.setEnabled(False)
-            return
+            return True
         for tag in tags:
             self._tray_new_in_tag.addAction(tag).triggered.connect(
                 lambda _checked=False, t=tag: self.create_note(tag=t)
             )
+        return True
 
     def open_search(self) -> None:
         notes = self.storage.get_all_stored_notes()
@@ -290,7 +299,7 @@ class AppManager:
                     self._notes_with_content.add(nd["id"])
         else:
             self.create_note()
-        self._rebuild_tray_tag_menu()
+        self._rebuild_tray_tag_menu(force=True)
         self._create_docks()
         self._tt()
 
@@ -374,14 +383,38 @@ class AppManager:
         notes = self._notes_for_dock()
         shortcuts = self.storage.get_dock_shortcuts()
         tags = self._all_known_tags()
-        self._pending_note_updates.clear()
+        shortcuts_signature = tuple(
+            (s.get("id", ""), s.get("path", ""), s.get("label", ""), s.get("added_at", ""))
+            for s in shortcuts
+        )
+        can_incremental = (
+            bool(self._pending_note_updates)
+            and tuple(tags) == self._last_dock_tags
+            and shortcuts_signature == self._last_dock_shortcuts_signature
+            and self._active_tag_filter == self._last_dock_filter
+        )
+        pending_note_updates = tuple(self._pending_note_updates)
         for dock in self.docks:
+            if can_incremental:
+                for nid in pending_note_updates:
+                    nd = notes.get(nid)
+                    if nd is None:
+                        dock.remove_note_card(nid)
+                        continue
+                    live = dict(nd)
+                    live["content"] = self.get_display_content(nid)
+                    dock.update_note_card(nid, live)
+                continue
             enriched = {}
             for nid, nd in notes.items():
                 live = dict(nd)
                 live["content"] = self.get_display_content(nid)
                 enriched[nid] = live
             dock.refresh_cards(enriched, shortcuts, tags, self._active_tag_filter)
+        self._pending_note_updates.clear()
+        self._last_dock_tags = tuple(tags)
+        self._last_dock_shortcuts_signature = shortcuts_signature
+        self._last_dock_filter = self._active_tag_filter
 
     def _schedule_dock_refresh(self, nid: str | None = None) -> None:
         if nid:

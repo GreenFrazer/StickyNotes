@@ -49,6 +49,28 @@ def run_benchmarks() -> list[dict]:
                 iterations=30 if count <= 10 else 15,
             )
         )
+        if count >= 10:
+            first_nid = next(iter(notes))
+            first_nd = dict(notes[first_nid])
+            dock.refresh_cards(notes, [])
+
+            def do_update(
+                n=first_nid,
+                nd=first_nd,
+                d=dock,
+            ) -> None:
+                nd = dict(nd)
+                nd["content"] = f"Updated {nd['content']}"
+                d.update_note_card(n, nd)
+
+            results.append(
+                run_timed(
+                    "dock_update_note_card",
+                    f"{count}_notes",
+                    do_update,
+                    iterations=30 if count <= 10 else 15,
+                )
+            )
     return results
 
 
