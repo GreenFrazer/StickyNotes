@@ -175,9 +175,6 @@ class NoteWindow(QWidget):
         app = QApplication.instance()
         if app is not None:
             app.focusChanged.connect(self._on_app_focus_changed)
-            self.destroyed.connect(
-                lambda: app.focusChanged.disconnect(self._on_app_focus_changed)
-            )
         self._apply_data()
         self._apply_style()
         self._refresh_dots()
@@ -1089,6 +1086,15 @@ class NoteWindow(QWidget):
         self._editing_focus_active = False
         self._keyboard_editing = False
         self._collapse_to_rest()
+
+    def closeEvent(self, event) -> None:
+        app = QApplication.instance()
+        if app is not None:
+            try:
+                app.focusChanged.disconnect(self._on_app_focus_changed)
+            except TypeError:
+                pass
+        super().closeEvent(event)
 
     def _focus_within_note(self, widget: QWidget | None) -> bool:
         if widget is None:

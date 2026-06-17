@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -107,6 +108,11 @@ class MacOSHotkeys:
         QTimer.singleShot(0, fn)
 
     def _show_accessibility_dialog(self, message: str) -> None:
+        # Modal dialogs block headless/offscreen test runs (QT_QPA_PLATFORM=offscreen).
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+            logger.warning("Shortcuts dialog suppressed in offscreen mode: %s", message)
+            return
+
         from PyQt6.QtCore import QTimer
         from PyQt6.QtWidgets import QMessageBox
 

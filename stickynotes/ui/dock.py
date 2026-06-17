@@ -62,7 +62,7 @@ from stickynotes.theme import (
 from stickynotes.ui.file_icons import file_icon_pixmap
 from stickynotes.ui.icons import set_button_icon
 
-DOCK_FILE_ICON_SIZE = 28
+DOCK_FILE_ICON_SIZE = 24
 
 
 def _make_dock_btn(icon_name: str, label_text: str, signal) -> QWidget:
@@ -399,20 +399,16 @@ class DockFileIndicator(QFrame):
         lo = QVBoxLayout(self)
         lo.setContentsMargins(2, 2, 2, 2)
         lo.setSpacing(0)
+        lo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_badge = QLabel(self)
         self.lbl_badge.setObjectName("fileBadge")
         self.lbl_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lo.addWidget(self.lbl_badge)
-        self.lbl_name = QLabel(self)
-        self.lbl_name.setObjectName("fileName")
-        self.lbl_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lo.addWidget(self.lbl_name)
+        lo.addWidget(self.lbl_badge, 0, Qt.AlignmentFlag.AlignCenter)
         self._apply_appearance(shortcut_data)
 
     def _apply_appearance(self, shortcut_data: dict[str, Any]) -> None:
         self._path = shortcut_data.get("path", "")
         label = dock_file_label(self._path, shortcut_data.get("label"))
-        truncated = label[:6] + "\u2026" if len(label) > 7 else label
         pixmap = file_icon_pixmap(self._path, size=DOCK_FILE_ICON_SIZE)
         if pixmap is not None and not pixmap.isNull():
             self.lbl_badge.setPixmap(pixmap)
@@ -423,11 +419,11 @@ class DockFileIndicator(QFrame):
             badge = dock_file_badge(self._path)
             self.lbl_badge.setText(badge)
             self.lbl_badge.setStyleSheet(dock_file_label_stylesheet(badge=True))
-        self.lbl_name.setText(truncated)
-        self.lbl_name.setStyleSheet(dock_file_label_stylesheet(badge=False))
         exists = bool(self._path) and os.path.isfile(self._path)
         self.setStyleSheet(dock_file_indicator_stylesheet(exists=exists))
-        tip = self._path if exists else f"{self._path}\n(File missing)"
+        tip = f"{label}\n{self._path}"
+        if not exists:
+            tip += "\n(File missing)"
         self.setToolTip(tip)
 
     def update_shortcut(self, shortcut_data: dict[str, Any]) -> None:
@@ -611,8 +607,9 @@ class DockWidget(QWidget):
             btn_lay.addStretch()
         btn_lay.setContentsMargins(0, 0, 0, 0)
         btn_lay.setSpacing(2)
-        for group in btn_groups:
-            btn_lay.addWidget(_make_sep(horiz))
+        for i, group in enumerate(btn_groups):
+            if i == len(btn_groups) - 1:
+                btn_lay.addWidget(_make_sep(horiz))
             for icon, label, sig in group:
                 bw = _make_dock_btn(icon, label, sig)
                 btn_lay.addWidget(bw)

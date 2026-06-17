@@ -151,6 +151,23 @@ def test_dock_file_indicator_falls_back_to_text_badge(
     assert pixmap is None or pixmap.isNull()
 
 
+def test_dock_file_indicator_tooltip_includes_label(
+    qapp, qtbot, tmp_path: Path
+) -> None:
+    path = tmp_path / "report.docx"
+    path.write_text("doc", encoding="utf-8")
+    with patch(
+        "stickynotes.ui.dock.file_icon_pixmap",
+        return_value=QPixmap(24, 24),
+    ):
+        indicator = DockFileIndicator(
+            {"id": "sc-4", "path": str(path), "label": "My Report"},
+        )
+    qtbot.addWidget(indicator)
+    assert "My Report" in indicator.toolTip()
+    assert str(path) in indicator.toolTip()
+
+
 def test_dock_file_indicator_uses_configured_icon_size(
     qapp, qtbot, tmp_path: Path
 ) -> None:
@@ -158,7 +175,7 @@ def test_dock_file_indicator_uses_configured_icon_size(
     path.write_text("x", encoding="utf-8")
     with patch(
         "stickynotes.ui.dock.file_icon_pixmap",
-        return_value=QPixmap(28, 28),
+        return_value=QPixmap(DOCK_FILE_ICON_SIZE, DOCK_FILE_ICON_SIZE),
     ) as mock_icon:
         DockFileIndicator({"id": "sc-3", "path": str(path), "label": None})
     mock_icon.assert_called_once_with(str(path), size=DOCK_FILE_ICON_SIZE)

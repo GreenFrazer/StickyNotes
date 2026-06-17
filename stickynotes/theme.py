@@ -59,6 +59,42 @@ def _font(size: int) -> str:
     return f"font-family:{FONT_FAMILY};font-size:{size}px;"
 
 
+def tag_chip_stylesheet(*, dark_rail: bool = True) -> str:
+    if dark_rail:
+        fg = ON_DARK
+        bg = "rgba(255,255,255,0.12)"
+        border = "rgba(255,255,255,0.18)"
+        hover_bg = "rgba(255,255,255,0.20)"
+        checked_bg = "rgba(0,113,227,0.35)"
+        checked_border = PRIMARY_FOCUS
+    else:
+        fg = INK_MUTED_80
+        bg = "rgba(255,255,255,0.55)"
+        border = "rgba(0,0,0,0.12)"
+        hover_bg = "rgba(255,255,255,0.75)"
+        checked_bg = "rgba(0,113,227,0.15)"
+        checked_border = PRIMARY_FOCUS
+    return f"""
+        #tagChip {{
+            {_font(FONT_FINE)}
+            color:{fg};
+            background:{bg};
+            border:1px solid {border};
+            border-radius:9999px;
+            padding:4px 10px;
+            min-height:22px;
+        }}
+        #tagChip:hover {{
+            background:{hover_bg};
+        }}
+        QPushButton#tagChip:checked {{
+            background:{checked_bg};
+            border:1px solid {checked_border};
+            color:{fg};
+        }}
+    """
+
+
 def dock_stylesheet(*, dark: bool = False, drag_over: bool = False) -> str:
     if drag_over:
         bg = "rgba(45,70,45,0.88)" if dark else "rgba(50,80,50,0.85)"
@@ -83,6 +119,7 @@ def dock_stylesheet(*, dark: bool = False, drag_over: bool = False) -> str:
         #dockBtn:hover {{ background:rgba(255,255,255,0.22); }}
         #dockBtn:pressed {{ background:rgba(255,255,255,0.35); }}
         #dockSep {{ color:rgba(255,255,255,0.12); background:rgba(255,255,255,0.12); }}
+        {tag_chip_stylesheet()}
     """
 
 
@@ -243,6 +280,7 @@ def note_window_stylesheet(bg: str, tb: str) -> str:
             background:transparent;
         }}
         QSizeGrip {{ background:transparent; width:16px; height:16px; }}
+        {tag_chip_stylesheet(dark_rail=False)}
     """
 
 

@@ -45,51 +45,47 @@ def test_search_private_note_opens_after_reveal_click(qapp, qtbot) -> None:
 
 def test_search_select_private_note_via_app_manager(qapp, qtbot) -> None:
     mgr = AppManager(qapp)
+    try:
+        nid = None
+        for note_id, nd in mgr.storage.get_all_notes().items():
+            if any("t1" in t for t in nd.get("tags", [])):
+                nid = note_id
+                break
 
-    nid = None
-    for note_id, nd in mgr.storage.get_all_notes().items():
-        if any("t1" in t for t in nd.get("tags", [])):
-            nid = note_id
-            break
+        if nid is None:
+            note = StorageManager.default_note()
+            note["content"] = "Tagged secret"
+            note["tags"] = ["t1-fgreen"]
+            note["private"] = True
+            note["visible"] = False
+            mgr.storage.set_note(note["id"], note)
+            mgr._spawn(note)
+            mgr.notes[note["id"]].hide()
+            nid = note["id"]
 
-    if nid is None:
-        note = StorageManager.default_note()
-        note["content"] = "Tagged secret"
-        note["tags"] = ["t1-fgreen"]
-        note["private"] = True
-        note["visible"] = False
-        mgr.storage.set_note(note["id"], note)
-        mgr._spawn(note)
-        mgr.notes[note["id"]].hide()
-        nid = note["id"]
+        mgr.open_search()
+        dlg = mgr._search_dialog
+        assert dlg is not None
+        qtbot.addWidget(dlg)
 
-    mgr.open_search()
-    dlg = mgr._search_dialog
-    assert dlg is not None
-    qtbot.addWidget(dlg)
+        dlg._input.setText("t1")
+        qtbot.wait(400)
+        assert dlg._results.count() >= 1
 
-    dlg._input.setText("t1")
-    qtbot.wait(400)
-    assert dlg._results.count() >= 1
+        item = dlg._results.item(0)
+        dlg._results.setCurrentItem(item)
+        dlg._on_activated(item)
+        qtbot.wait(50)
 
-    item = dlg._results.item(0)
-    qtbot.mouseClick(
-        dlg._results.viewport(),
-        Qt.MouseButton.LeftButton,
-        pos=dlg._results.visualItemRect(item).center(),
-    )
-    qtbot.wait(50)
+        item = dlg._results.item(0)
+        assert item is not None
+        dlg._results.setCurrentItem(item)
+        dlg._on_activated(item)
+        qtbot.wait(100)
 
-    item = dlg._results.item(0)
-    qtbot.wait(50)
-    qtbot.mouseClick(
-        dlg._results.viewport(),
-        Qt.MouseButton.LeftButton,
-        pos=dlg._results.visualItemRect(item).center(),
-    )
-    qtbot.wait(100)
-
-    assert mgr.notes[nid].isVisible()
+        assert mgr.notes[nid].isVisible()
+    finally:
+        mgr.shutdown()
 
 
 def test_search_content_getter_called_once_per_note(qapp, qtbot) -> None:

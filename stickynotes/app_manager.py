@@ -92,8 +92,8 @@ class AppManager:
         self._create_docks()
         qapp = QGuiApplication.instance()
         if qapp:
-            qapp.screenAdded.connect(lambda _s: self._create_docks())
-            qapp.screenRemoved.connect(lambda _s: self._create_docks())
+            qapp.screenAdded.connect(self._on_display_layout_changed)
+            qapp.screenRemoved.connect(self._on_display_layout_changed)
 
         saved = self.storage.get_all_notes()
         if saved:
@@ -104,6 +104,9 @@ class AppManager:
         else:
             self.create_note()
         self._refresh_all_docks()
+
+    def _on_display_layout_changed(self, _screen=None) -> None:
+        self._create_docks()
 
     def get_live_content(self, nid: str) -> str:
         n = self.notes.get(nid)
@@ -690,6 +693,73 @@ class AppManager:
                 self._dark = dark
             self._create_docks()
 
+    def shutdown(self) -> None:
+        """Stop services and tear down widgets (for tests and clean exit)."""
+        self._dock_refresh_timer.stop()
+        self._reminders.stop()
+        self._hotkeys.stop()
+
+        qapp = QGuiApplication.instance()
+        if qapp is not None:
+            for signal in (qapp.screenAdded, qapp.screenRemoved):
+                try:
+                    signal.disconnect(self._on_display_layout_changed)
+                except TypeError:
+                    pass
+
+        if self._search_dialog is not None:
+            try:
+                self._search_dialog.note_selected.disconnect(
+                    self._search_note_selected
+                )
+            except TypeError:
+                pass
+            self._search_dialog.close()
+            self._search_dialog.deleteLater()
+            self._search_dialog = None
+
+        for nid in list(self.notes):
+            n = self.notes.pop(nid)
+            for sig, slot in (
+                (n.request_new_note, self.create_note),
+                (n.request_delete, self.delete_note),
+                (n.request_duplicate, self.duplicate_note),
+                (n.note_data_changed, self._on_changed),
+            ):
+                try:
+                    sig.disconnect(slot)
+                except TypeError:
+                    pass
+            n.close()
+            n.deleteLater()
+
+        for dock in self.docks:
+            for sig in (
+                dock.sig_new_note,
+                dock.sig_show_all,
+                dock.sig_hide_all,
+                dock.sig_settings,
+                dock.sig_search,
+                dock.sig_exit,
+                dock.sig_card_click,
+                dock.sig_shortcut_click,
+                dock.sig_pin_file,
+                dock.sig_files_dropped,
+                dock.sig_remove_shortcut,
+                dock.sig_tag_filter,
+            ):
+                try:
+                    sig.disconnect()
+                except TypeError:
+                    pass
+            dock.destroy_dock()
+            dock.deleteLater()
+        self.docks.clear()
+
+        self.tray.hide()
+        if self.app is not None:
+            self.app.processEvents()
+
     def exit_app(self) -> None:
         if (
             QMessageBox.question(
@@ -702,9 +772,7 @@ class AppManager:
         ):
             for n in self.notes.values():
                 n._persist()
-            self._reminders.stop()
-            self._hotkeys.stop()
-            self.tray.hide()
+            self.shutdown()
             self.app.quit()
 
     def _tray_act(self, r) -> None:
