@@ -558,6 +558,7 @@ class DockWidget(QWidget):
 
     DEFAULT_THICK = MIN_DOCK_WIDTH
     THICK = DEFAULT_THICK
+    TILE = 44
     TRIGGER = 4
     RESIZE_HANDLE = 7
     ANIM_MS = 200
@@ -627,6 +628,10 @@ class DockWidget(QWidget):
         self._hide_tmr.setSingleShot(True)
         self._hide_tmr.setInterval(self.HIDE_MS)
         self._hide_tmr.timeout.connect(self._slide_out)
+        self._layout_tmr = QTimer(self)
+        self._layout_tmr.setSingleShot(True)
+        self._layout_tmr.setInterval(0)
+        self._layout_tmr.timeout.connect(self._sync_indicator_layout)
         if self._screen is not None:
             self._screen.geometryChanged.connect(self._on_screen_changed)
             self._screen.availableGeometryChanged.connect(self._on_screen_changed)
@@ -736,6 +741,7 @@ class DockWidget(QWidget):
         else:
             self.setGeometry(self._hidden_geo())
         self._position_resize_handle()
+        self._schedule_indicator_layout()
         self._poll.start()
 
     def set_dock_width(self, width: int, *, persist: bool = True) -> None:
@@ -897,8 +903,13 @@ class DockWidget(QWidget):
             self._file_indicator_map[sd["id"]] = file_ind
         if sorted_shortcuts:
             self.ind_layout.addWidget(_make_sep(self._pos == "top"))
+        dockable = [
+            nd
+            for nd in self._notes_data.values()
+            if nd.get("content", "").strip() or nd.get("private")
+        ]
         sorted_n = sorted(
-            self._notes_data.values(),
+            dockable,
             key=lambda n: n.get("modified_at", ""),
             reverse=True,
         )
@@ -911,6 +922,7 @@ class DockWidget(QWidget):
             self._indicators.append(ind)
             self._indicator_map[nd["id"]] = ind
         self.ind_layout.addStretch()
+        self._schedule_indicator_layout()
 
     def update_note_card(self, nid: str, note_data: dict[str, Any]) -> None:
         has_content = bool(note_data.get("content", "").strip())
@@ -932,6 +944,42 @@ class DockWidget(QWidget):
             idx += 1
         return idx + indicator_index
 
+    def _ensure_trailing_stretch(self) -> None:
+        if self.ind_layout.count() == 0:
+            self.ind_layout.addStretch()
+            return
+        last = self.ind_layout.itemAt(self.ind_layout.count() - 1)
+        if last is None or last.spacerItem() is None:
+            self.ind_layout.addStretch()
+
+    def _indicator_span_px(self) -> int:
+        count = len(self._indicators) + len(self._file_indicators)
+        if self._file_indicators:
+            count += 1
+        if count <= 0:
+            return 0
+        spacing = self.ind_layout.spacing()
+        return count * self.TILE + max(0, count - 1) * spacing
+
+    def _sync_indicator_layout(self) -> None:
+        """Apply layout once the dock has room to lay out tiles."""
+        self._ensure_trailing_stretch()
+        self.ind_layout.invalidate()
+        self.ind_layout.activate()
+        span = self._indicator_span_px()
+        if span > 0:
+            if self._pos == "top":
+                self.ind_container.setMinimumWidth(span)
+            else:
+                self.ind_container.setMinimumHeight(span)
+        self.ind_container.adjustSize()
+        cr = self.ind_container.contentsRect()
+        if cr.width() > 0 and cr.height() > 0:
+            self.ind_layout.setGeometry(cr)
+
+    def _schedule_indicator_layout(self) -> None:
+        self._layout_tmr.start()
+
     def _insert_note_indicator(self, nid: str, note_data: dict[str, Any]) -> None:
         ind = DockNoteIndicator(note_data, self._content_getter, self.ind_container)
         ind.sig_click.connect(self._on_note_click)
@@ -946,12 +994,10 @@ class DockWidget(QWidget):
                 break
         self._indicators.insert(insert_at, ind)
         self._indicator_map[nid] = ind
+        self._ensure_trailing_stretch()
         layout_idx = self._note_layout_index(insert_at)
-        stretch_idx = self.ind_layout.count() - 1
-        if stretch_idx >= 0 and self.ind_layout.itemAt(stretch_idx).spacerItem():
-            self.ind_layout.insertWidget(layout_idx, ind)
-        else:
-            self.ind_layout.addWidget(ind)
+        self.ind_layout.insertWidget(layout_idx, ind)
+        self._schedule_indicator_layout()
 
     def remove_note_card(self, nid: str) -> None:
         self._notes_data.pop(nid, None)
@@ -1156,6 +1202,10 @@ class DockWidget(QWidget):
         else:
             self._place_hidden()
 
+    def _on_slide_in_finished(self) -> None:
+        self._set_shown_size_constraints()
+        self._sync_indicator_layout()
+
     def _slide_in(self) -> None:
         if self._shown:
             return
@@ -1166,7 +1216,7 @@ class DockWidget(QWidget):
         if self._collapse_on_hide():
             self._clear_size_constraints()
             anim = self._anim_geom(self._hidden_geo(), self._shown_geo())
-            anim.finished.connect(self._set_shown_size_constraints)
+            anim.finished.connect(self._on_slide_in_finished)
         else:
             self.setGeometry(self._hidden_geo())
             self._anim_to(self._vis_pos())
@@ -1308,5 +1358,6 @@ class DockWidget(QWidget):
                 pass
         self._poll.stop()
         self._hide_tmr.stop()
+        self._layout_tmr.stop()
         self._dismiss_popups()
         self.close()

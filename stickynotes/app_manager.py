@@ -392,7 +392,9 @@ class AppManager:
         self._refresh_all_docks()
 
     def _notes_for_dock(self) -> dict:
-        notes = self.storage.get_all_notes()
+        notes = dict(self.storage.get_all_notes())
+        for nid, note in self.notes.items():
+            notes[nid] = dict(note.note_data)
         if self._active_tag_filter:
             notes = {
                 nid: nd

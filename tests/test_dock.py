@@ -65,6 +65,60 @@ def test_update_note_card_inserts_new_note(dock: DockWidget) -> None:
     assert len(dock._indicators) == 2
 
 
+def test_incremental_inserts_do_not_stack_indicators(qapp, qtbot) -> None:
+    dock = DockWidget(
+        position="right",
+        dark_mode=False,
+        screen_geo=QRect(0, 0, 1920, 1080),
+        content_getter=lambda _nid: "",
+    )
+    dock._poll.stop()
+    dock._hide_tmr.stop()
+    qtbot.addWidget(dock)
+    dock.show()
+    dock._shown = True
+    dock.setGeometry(dock._shown_geo())
+    dock.refresh_cards({}, [], [])
+    for i in range(6):
+        nd = _make_note(f"Note {i}", modified_at=f"2026-06-17T10:0{i}:00")
+        dock.update_note_card(nd["id"], nd)
+    qtbot.wait(20)
+    ys = [ind.geometry().y() for ind in dock._indicators]
+    assert len(ys) == len(set(ys))
+    dock.destroy_dock()
+
+
+def test_hidden_dock_relayouts_notes_on_expand(qapp, qtbot) -> None:
+    dock = DockWidget(
+        position="right",
+        dark_mode=False,
+        screen_geo=QRect(0, 0, 1920, 1080),
+        content_getter=lambda _nid: "",
+    )
+    dock._poll.stop()
+    dock._hide_tmr.stop()
+    qtbot.addWidget(dock)
+    dock._place_hidden()
+    dock.refresh_cards({}, [], [])
+    for i in range(4):
+        nd = _make_note(f"Note {i}", modified_at=f"2026-06-17T10:0{i}:00")
+        dock.update_note_card(nd["id"], nd)
+    dock._slide_in()
+    qtbot.wait(250)
+    ys = [ind.geometry().y() for ind in dock._indicators]
+    assert len(ys) == len(set(ys))
+    dock.destroy_dock()
+
+
+def test_refresh_cards_skips_empty_non_private_notes(dock: DockWidget) -> None:
+    empty = _make_note("")
+    private = _make_note("")
+    private["private"] = True
+    dock.refresh_cards({empty["id"]: empty, private["id"]: private}, [], [])
+    assert len(dock._indicators) == 1
+    assert dock._indicators[0].note_id == private["id"]
+
+
 def test_poll_mouse_same_cursor_skips_interval_reset(
     dock: DockWidget, monkeypatch: pytest.MonkeyPatch
 ) -> None:
