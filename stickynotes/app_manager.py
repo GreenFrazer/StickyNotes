@@ -368,20 +368,23 @@ class AppManager:
             dock.sig_files_dropped.connect(self.pin_dropped_files)
             dock.sig_remove_shortcut.connect(self.remove_shortcut)
             dock.sig_tag_filter.connect(self._set_tag_filter)
-            dock.sig_dock_width_changed.connect(self._on_dock_width_changed)
+            dock.sig_dock_width_changed.connect(
+                lambda w, d=dock: self._on_dock_width_changed(w, d)
+            )
             self.docks.append(dock)
         self._refresh_all_docks()
 
-    def _on_dock_width_changed(self, width: int) -> None:
+    def _on_dock_width_changed(
+        self, width: int, source: DockWidget | None = None
+    ) -> None:
         if width == self._dock_width:
             return
         self._dock_width = width
         settings = self.storage.get_settings()
         settings["dock_width"] = width
         self.storage.set_settings(settings)
-        sender = self.sender()
         for dock in self.docks:
-            if dock is not sender:
+            if dock is not source:
                 dock.set_dock_width(width, persist=False)
 
     def _set_tag_filter(self, tag: str) -> None:

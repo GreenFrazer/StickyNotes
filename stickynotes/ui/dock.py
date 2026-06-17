@@ -512,8 +512,7 @@ class DockResizeHandle(QWidget):
             self._start_thick = self._dock._thick
             self._changed = False
             self.grabMouse()
-            self._dock._hide_tmr.stop()
-            self._dock._resize_dragging = True
+            self._dock._begin_resize_drag()
             event.accept()
             return
         super().mousePressEvent(event)
@@ -533,8 +532,8 @@ class DockResizeHandle(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self._dragging and event.button() == Qt.MouseButton.LeftButton:
             self._dragging = False
-            self._dock._resize_dragging = False
             self.releaseMouse()
+            self._dock._end_resize_drag()
             if self._changed:
                 self._dock.sig_dock_width_changed.emit(self._dock._thick)
             event.accept()
@@ -719,11 +718,15 @@ class DockWidget(QWidget):
         super().resizeEvent(event)
         self._position_resize_handle()
 
-    def set_dock_width(self, width: int, *, persist: bool = True) -> None:
-        w = clamp_dock_width(width)
-        if w == self._thick:
-            return
-        self._thick = w
+    def _begin_resize_drag(self) -> None:
+        self._hide_tmr.stop()
+        self._poll.stop()
+        self._resize_dragging = True
+        if self._shown:
+            self._clear_size_constraints()
+
+    def _end_resize_drag(self) -> None:
+        self._resize_dragging = False
         if self._shown:
             self._set_shown_size_constraints()
             self.setGeometry(self._shown_geo())
@@ -733,6 +736,27 @@ class DockWidget(QWidget):
         else:
             self.setGeometry(self._hidden_geo())
         self._position_resize_handle()
+        self._poll.start()
+
+    def set_dock_width(self, width: int, *, persist: bool = True) -> None:
+        w = clamp_dock_width(width)
+        if w == self._thick:
+            return
+        self._thick = w
+        if self._resize_dragging:
+            self.setGeometry(
+                self._shown_geo() if self._shown else self._hidden_geo()
+            )
+        elif self._shown:
+            self._set_shown_size_constraints()
+            self.setGeometry(self._shown_geo())
+        elif self._collapse_on_hide():
+            self._set_hidden_size_constraints()
+            self.setGeometry(self._hidden_geo())
+        else:
+            self.setGeometry(self._hidden_geo())
+        if not self._resize_dragging:
+            self._position_resize_handle()
         if persist:
             self.sig_dock_width_changed.emit(w)
 
@@ -1220,6 +1244,8 @@ class DockWidget(QWidget):
             self._poll.setInterval(ms)
 
     def _poll_mouse(self) -> None:
+        if self._resize_dragging:
+            return
         c = QCursor.pos()
         if (
             self._last_poll_cursor is not None

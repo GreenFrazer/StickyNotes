@@ -275,6 +275,80 @@ def test_resize_handle_drag_clamps_width(qapp, qtbot) -> None:
         dock.destroy_dock()
 
 
+def test_resize_drag_avoids_fixed_width_during_moves(qapp, monkeypatch) -> None:
+    geo = QRect(0, 0, 1920, 1080)
+    dock = DockWidget(
+        position="right",
+        screen_geo=geo,
+        content_getter=lambda _nid: "",
+        dock_width=100,
+    )
+    dock._poll.stop()
+    dock._hide_tmr.stop()
+    dock._shown = True
+    dock._set_shown_size_constraints()
+    dock.setGeometry(dock._shown_geo())
+    handle = dock._resize_handle
+    fixed_width_calls: list[int] = []
+    original = dock.setFixedWidth
+
+    def track_fixed_width(w: int) -> None:
+        fixed_width_calls.append(w)
+        original(w)
+
+    monkeypatch.setattr(dock, "setFixedWidth", track_fixed_width)
+    try:
+        start = QPoint(geo.right() - 50, 540)
+        handle.mousePressEvent(_mouse_event(QMouseEvent.Type.MouseButtonPress, start))
+        for x in range(geo.right() - 60, geo.right() - 200, -10):
+            handle.mouseMoveEvent(
+                _mouse_event(QMouseEvent.Type.MouseMove, QPoint(x, 540))
+            )
+        assert fixed_width_calls == []
+        handle.mouseReleaseEvent(
+            _mouse_event(
+                QMouseEvent.Type.MouseButtonRelease,
+                QPoint(geo.right() - 200, 540),
+            )
+        )
+        assert len(fixed_width_calls) == 1
+    finally:
+        dock.destroy_dock()
+
+
+def test_resize_drag_pauses_poll_timer(qapp) -> None:
+    geo = QRect(0, 0, 1920, 1080)
+    dock = DockWidget(
+        position="right",
+        screen_geo=geo,
+        content_getter=lambda _nid: "",
+        dock_width=100,
+    )
+    dock._hide_tmr.stop()
+    dock._shown = True
+    dock._set_shown_size_constraints()
+    dock.setGeometry(dock._shown_geo())
+    handle = dock._resize_handle
+    try:
+        assert dock._poll.isActive()
+        handle.mousePressEvent(
+            _mouse_event(
+                QMouseEvent.Type.MouseButtonPress,
+                QPoint(geo.right() - 50, 540),
+            )
+        )
+        assert not dock._poll.isActive()
+        handle.mouseReleaseEvent(
+            _mouse_event(
+                QMouseEvent.Type.MouseButtonRelease,
+                QPoint(geo.right() - 80, 540),
+            )
+        )
+        assert dock._poll.isActive()
+    finally:
+        dock.destroy_dock()
+
+
 def test_resize_handle_persists_width_once_on_release(qapp, qtbot) -> None:
     geo = QRect(0, 0, 1920, 1080)
     dock = DockWidget(
