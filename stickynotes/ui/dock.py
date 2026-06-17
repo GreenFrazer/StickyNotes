@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from stickynotes import __version__, build_date_display
 from stickynotes.models import (
     MAX_DOCK_WIDTH,
     MIN_DOCK_WIDTH,
@@ -76,7 +77,13 @@ from stickynotes.ui.icons import set_button_icon
 DOCK_FILE_ICON_SIZE = 24
 
 
-def _make_dock_btn(icon_name: str, label_text: str, signal) -> QWidget:
+def _make_dock_btn(
+    icon_name: str,
+    label_text: str,
+    signal=None,
+    *,
+    on_click: Callable[[], None] | None = None,
+) -> QWidget:
     w = QWidget()
     w.setFixedWidth(48)
     lo = QVBoxLayout(w)
@@ -87,7 +94,10 @@ def _make_dock_btn(icon_name: str, label_text: str, signal) -> QWidget:
     btn.setToolTip(label_text)
     btn.setFixedSize(44, 44)
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.clicked.connect(signal.emit)
+    if on_click is not None:
+        btn.clicked.connect(on_click)
+    elif signal is not None:
+        btn.clicked.connect(signal.emit)
     btn.setObjectName("dockBtn")
     set_button_icon(btn, icon_name, 20, light=True)
     lo.addWidget(btn, 0, Qt.AlignmentFlag.AlignCenter)
@@ -601,9 +611,7 @@ class DockWidget(QWidget):
         self._popup_timer.timeout.connect(self._hide_popup)
         self._notes_data: dict[str, dict[str, Any]] = {}
         self._shortcuts_data: list[dict[str, Any]] = []
-        self._known_tags: list[str] = []
-        self._active_tag = ""
-        self._tag_buttons: list[QPushButton] = []
+        self._settings_btn: QPushButton | None = None
         self._drag_over = False
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -642,12 +650,6 @@ class DockWidget(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(4, 4, 4, 4)
         outer.setSpacing(4)
-        self._tag_row = QWidget()
-        self._tag_row.setObjectName("tagFilterRow")
-        self._tag_layout = QHBoxLayout(self._tag_row)
-        self._tag_layout.setContentsMargins(0, 0, 0, 0)
-        self._tag_layout.setSpacing(4)
-        outer.addWidget(self._tag_row)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setStyleSheet(dock_scroll_stylesheet())
@@ -689,23 +691,31 @@ class DockWidget(QWidget):
                 ("show_all", "Show All", self.sig_show_all),
                 ("hide_all", "Hide All", self.sig_hide_all),
                 ("search", "Search notes\u2026", self.sig_search),
-                ("settings", "Settings", self.sig_settings),
             ],
-            [("exit", "Exit", self.sig_exit)],
         ]
         self._btn_widgets = []
-        btn_lay = QHBoxLayout() if horiz else QVBoxLayout()
-        if horiz:
+        btn_horiz = horiz or self._pos in ("left", "right")
+        btn_lay = QHBoxLayout() if btn_horiz else QVBoxLayout()
+        if btn_horiz:
             btn_lay.addStretch()
         btn_lay.setContentsMargins(0, 0, 0, 0)
         btn_lay.setSpacing(2)
         for i, group in enumerate(btn_groups):
-            if i == len(btn_groups) - 1:
-                btn_lay.addWidget(_make_sep(horiz))
+            if i > 0:
+                btn_lay.addWidget(_make_sep(btn_horiz))
             for icon, label, sig in group:
                 bw = _make_dock_btn(icon, label, sig)
                 btn_lay.addWidget(bw)
                 self._btn_widgets.append(bw)
+        settings_bw = _make_dock_btn(
+            "settings",
+            "Settings",
+            on_click=self._show_settings_menu,
+        )
+        btn_lay.addWidget(_make_sep(btn_horiz))
+        btn_lay.addWidget(settings_bw)
+        self._btn_widgets.append(settings_bw)
+        self._settings_btn = settings_bw.btn  # type: ignore[attr-defined]
         outer.addLayout(btn_lay)
 
     def _position_resize_handle(self) -> None:
@@ -844,25 +854,24 @@ class DockWidget(QWidget):
     def set_content_getter(self, getter: Callable[[str], str]) -> None:
         self._content_getter = getter
 
-    def _rebuild_tag_filters(self, tags: list[str], active: str) -> None:
-        while self._tag_layout.count():
-            item = self._tag_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-        self._tag_buttons.clear()
-        chips = [""] + sorted({t for t in tags if t})
-        for tag in chips:
-            label = "All" if not tag else tag
-            btn = QPushButton(label)
-            btn.setCheckable(True)
-            btn.setChecked(tag == active)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setObjectName("tagChip")
-            btn.clicked.connect(lambda _checked=False, t=tag: self.sig_tag_filter.emit(t))
-            self._tag_layout.addWidget(btn)
-            self._tag_buttons.append(btn)
-        self._tag_layout.addStretch()
+    def _build_settings_menu(self) -> QMenu:
+        menu = QMenu(self)
+        menu.setStyleSheet(menu_stylesheet(dark=True))
+        menu.addAction("Settings", lambda: self.sig_settings.emit())
+        menu.addSeparator()
+        menu.addAction("Exit", lambda: self.sig_exit.emit())
+        menu.addSeparator()
+        version_action = menu.addAction(f"Version {__version__}")
+        version_action.setEnabled(False)
+        build_action = menu.addAction(f"Built {build_date_display()}")
+        build_action.setEnabled(False)
+        return menu
+
+    def _show_settings_menu(self) -> None:
+        menu = self._build_settings_menu()
+        btn = self._settings_btn
+        if btn is not None:
+            menu.exec(btn.mapToGlobal(QPoint(0, btn.height())))
 
     def refresh_cards(
         self,
@@ -871,9 +880,7 @@ class DockWidget(QWidget):
         tags: list[str] | None = None,
         active_tag: str = "",
     ) -> None:
-        self._known_tags = list(tags or [])
-        self._active_tag = active_tag
-        self._rebuild_tag_filters(self._known_tags, active_tag)
+        del tags, active_tag
         for ind in self._file_indicators:
             ind.setParent(None)
             ind.deleteLater()

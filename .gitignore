@@ -39,3 +39,4 @@ Thumbs.db
 
 # Local-only dev scripts and artifacts (not committed)
 .local/
+stickynotes/_build_info.py

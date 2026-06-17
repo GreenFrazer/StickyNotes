@@ -7,8 +7,11 @@ import sys
 from PyQt6.QtCore import QPoint, QPointF, QRect, Qt
 from PyQt6.QtGui import QMouseEvent
 
+from PyQt6.QtWidgets import QHBoxLayout, QWidget
+
 import pytest
 
+from stickynotes import __version__
 from stickynotes.models import MAX_DOCK_WIDTH, MIN_DOCK_WIDTH, clamp_dock_width
 from stickynotes.storage import StorageManager
 from stickynotes.ui.dock import DockNoteIndicator, DockWidget
@@ -466,3 +469,69 @@ def test_remove_note_card(dock: DockWidget) -> None:
     assert n2["id"] not in dock._indicator_map
     assert len(dock._indicators) == 1
     assert all(isinstance(i, DockNoteIndicator) for i in dock._indicators)
+
+
+def test_dock_has_no_tag_filter_row(dock: DockWidget) -> None:
+    dock.refresh_cards({}, [], tags=["fg", "t1-fgreen"], active_tag="fg")
+    assert dock.findChild(QWidget, "tagFilterRow") is None
+
+
+def test_dock_has_no_standalone_exit_button(dock: DockWidget) -> None:
+    tooltips = [w.btn.toolTip() for w in dock._btn_widgets]
+    assert "Exit" not in tooltips
+
+
+def test_settings_menu_includes_exit_and_version(dock: DockWidget) -> None:
+    menu = dock._build_settings_menu()
+    actions = [action for action in menu.actions() if not action.isSeparator()]
+    assert actions[0].text() == "Settings"
+    assert actions[1].text() == "Exit"
+    assert actions[2].text() == f"Version {__version__}"
+    assert actions[3].text().startswith("Built ")
+    assert actions[0].isEnabled()
+    assert actions[1].isEnabled()
+    assert not actions[2].isEnabled()
+    assert not actions[3].isEnabled()
+
+
+def test_settings_menu_signals(qtbot, dock: DockWidget) -> None:
+    settings_calls: list[str] = []
+    exit_calls: list[str] = []
+    dock.sig_settings.connect(lambda: settings_calls.append("settings"))
+    dock.sig_exit.connect(lambda: exit_calls.append("exit"))
+    menu = dock._build_settings_menu()
+    for action in menu.actions():
+        if action.text() == "Settings":
+            action.trigger()
+        elif action.text() == "Exit":
+            action.trigger()
+    assert settings_calls == ["settings"]
+    assert exit_calls == ["exit"]
+
+
+def _action_button_layout(dock: DockWidget):
+    outer = dock.layout()
+    assert outer is not None
+    item = outer.itemAt(outer.count() - 1)
+    return item.layout()
+
+
+@pytest.mark.parametrize("position", ["right", "left"])
+def test_side_dock_action_buttons_horizontal(position: str, qapp) -> None:
+    dock = DockWidget(
+        position=position,
+        screen_geo=QRect(0, 0, 1920, 1080),
+        content_getter=lambda _nid: "",
+    )
+    dock._poll.stop()
+    dock._hide_tmr.stop()
+    try:
+        btn_lay = _action_button_layout(dock)
+        assert isinstance(btn_lay, QHBoxLayout)
+    finally:
+        dock.destroy_dock()
+
+
+def test_top_dock_action_buttons_horizontal(dock: DockWidget) -> None:
+    btn_lay = _action_button_layout(dock)
+    assert isinstance(btn_lay, QHBoxLayout)

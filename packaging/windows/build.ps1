@@ -17,6 +17,12 @@ if (-not (Test-Path $VenvPython)) {
 if (Test-Path build) { Remove-Item -Recurse -Force build }
 if (Test-Path dist) { Remove-Item -Recurse -Force dist }
 
-& $VenvPython -m PyInstaller packaging/windows/sticky_notes.spec
+& $VenvPython scripts/stamp_build_info.py
+try {
+    & $VenvPython -m PyInstaller packaging/windows/sticky_notes.spec
+}
+finally {
+    & $VenvPython scripts/stamp_build_info.py --clean
+}
 
 Write-Host "Built: $Root\dist\StickyNotes.exe"

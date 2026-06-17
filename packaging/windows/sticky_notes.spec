@@ -13,7 +13,11 @@ a = Analysis(
     pathex=[ROOT],
     binaries=[],
     datas=[],
-    hiddenimports=['stickynotes', 'stickynotes.platform.windows.hotkeys'],
+    hiddenimports=[
+        'stickynotes',
+        'stickynotes._build_info',
+        'stickynotes.platform.windows.hotkeys',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

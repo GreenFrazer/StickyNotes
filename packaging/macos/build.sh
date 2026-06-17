@@ -17,6 +17,8 @@ python -m pip install --upgrade pip -q
 python -m pip install -r requirements-macos.txt -q
 
 rm -rf build dist
+python scripts/stamp_build_info.py
+trap 'python scripts/stamp_build_info.py --clean' EXIT
 python packaging/macos/setup.py py2app
 python packaging/macos/bundle_extras.py
 
