@@ -612,6 +612,7 @@ class DockWidget(QWidget):
         self._notes_data: dict[str, dict[str, Any]] = {}
         self._shortcuts_data: list[dict[str, Any]] = []
         self._settings_btn: QPushButton | None = None
+        self._btn_layout: QHBoxLayout | QVBoxLayout | None = None
         self._drag_over = False
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -694,29 +695,71 @@ class DockWidget(QWidget):
             ],
         ]
         self._btn_widgets = []
-        btn_horiz = horiz or self._pos in ("left", "right")
-        btn_lay = QHBoxLayout() if btn_horiz else QVBoxLayout()
-        if btn_horiz:
-            btn_lay.addStretch()
-        btn_lay.setContentsMargins(0, 0, 0, 0)
-        btn_lay.setSpacing(2)
-        for i, group in enumerate(btn_groups):
-            if i > 0:
-                btn_lay.addWidget(_make_sep(btn_horiz))
+        for group in btn_groups:
             for icon, label, sig in group:
                 bw = _make_dock_btn(icon, label, sig)
-                btn_lay.addWidget(bw)
                 self._btn_widgets.append(bw)
         settings_bw = _make_dock_btn(
             "settings",
             "Settings",
             on_click=self._show_settings_menu,
         )
-        btn_lay.addWidget(_make_sep(btn_horiz))
-        btn_lay.addWidget(settings_bw)
         self._btn_widgets.append(settings_bw)
         self._settings_btn = settings_bw.btn  # type: ignore[attr-defined]
-        outer.addLayout(btn_lay)
+        self._sync_action_button_layout()
+
+    def _action_buttons_horizontal(self) -> bool:
+        if self._pos == "top":
+            return True
+        return self._pos in ("left", "right") and self._thick > MIN_DOCK_WIDTH
+
+    def _sync_action_button_layout(self) -> None:
+        horiz = self._action_buttons_horizontal()
+        if self._btn_layout is not None and horiz == isinstance(
+            self._btn_layout, QHBoxLayout
+        ):
+            return
+
+        outer = self.layout()
+        assert outer is not None
+
+        scroll_idx = outer.indexOf(self.scroll)
+        outer.removeWidget(self._action_sep)
+        self._action_sep.deleteLater()
+        self._action_sep = _make_sep(horiz)
+        outer.insertWidget(scroll_idx + 1, self._action_sep)
+
+        if self._btn_layout is not None:
+            for i in range(outer.count()):
+                item = outer.itemAt(i)
+                if item is not None and item.layout() == self._btn_layout:
+                    outer.takeAt(i)
+                    break
+            while self._btn_layout.count():
+                item = self._btn_layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None and widget not in self._btn_widgets:
+                    widget.deleteLater()
+            self._btn_layout.deleteLater()
+
+        self._btn_layout = QHBoxLayout() if horiz else QVBoxLayout()
+        self._btn_layout.setContentsMargins(0, 0, 0, 0)
+        self._btn_layout.setSpacing(2)
+        if horiz:
+            self._btn_layout.addStretch()
+
+        groups = [
+            [self._btn_widgets[0]],
+            [self._btn_widgets[1]],
+            self._btn_widgets[2:5],
+            [self._btn_widgets[5]],
+        ]
+        for i, group in enumerate(groups):
+            if i > 0:
+                self._btn_layout.addWidget(_make_sep(horiz))
+            for widget in group:
+                self._btn_layout.addWidget(widget)
+        outer.addLayout(self._btn_layout)
 
     def _position_resize_handle(self) -> None:
         h = self.RESIZE_HANDLE
@@ -759,6 +802,7 @@ class DockWidget(QWidget):
         if w == self._thick:
             return
         self._thick = w
+        self._sync_action_button_layout()
         if self._resize_dragging:
             self.setGeometry(
                 self._shown_geo() if self._shown else self._hidden_geo()

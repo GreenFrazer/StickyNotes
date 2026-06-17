@@ -7,7 +7,7 @@ import sys
 from PyQt6.QtCore import QPoint, QPointF, QRect, Qt
 from PyQt6.QtGui import QMouseEvent
 
-from PyQt6.QtWidgets import QHBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 import pytest
 
@@ -517,7 +517,9 @@ def _action_button_layout(dock: DockWidget):
 
 
 @pytest.mark.parametrize("position", ["right", "left"])
-def test_side_dock_action_buttons_horizontal(position: str, qapp) -> None:
+def test_side_dock_action_buttons_vertical_at_default_width(
+    position: str, qapp
+) -> None:
     dock = DockWidget(
         position=position,
         screen_geo=QRect(0, 0, 1920, 1080),
@@ -527,7 +529,44 @@ def test_side_dock_action_buttons_horizontal(position: str, qapp) -> None:
     dock._hide_tmr.stop()
     try:
         btn_lay = _action_button_layout(dock)
+        assert isinstance(btn_lay, QVBoxLayout)
+    finally:
+        dock.destroy_dock()
+
+
+@pytest.mark.parametrize("position", ["right", "left"])
+def test_side_dock_action_buttons_horizontal_when_extended(
+    position: str, qapp
+) -> None:
+    dock = DockWidget(
+        position=position,
+        screen_geo=QRect(0, 0, 1920, 1080),
+        content_getter=lambda _nid: "",
+        dock_width=120,
+    )
+    dock._poll.stop()
+    dock._hide_tmr.stop()
+    try:
+        btn_lay = _action_button_layout(dock)
         assert isinstance(btn_lay, QHBoxLayout)
+    finally:
+        dock.destroy_dock()
+
+
+def test_side_dock_action_buttons_switch_on_resize(qapp) -> None:
+    dock = DockWidget(
+        position="right",
+        screen_geo=QRect(0, 0, 1920, 1080),
+        content_getter=lambda _nid: "",
+    )
+    dock._poll.stop()
+    dock._hide_tmr.stop()
+    try:
+        assert isinstance(_action_button_layout(dock), QVBoxLayout)
+        dock.set_dock_width(120, persist=False)
+        assert isinstance(_action_button_layout(dock), QHBoxLayout)
+        dock.set_dock_width(MIN_DOCK_WIDTH, persist=False)
+        assert isinstance(_action_button_layout(dock), QVBoxLayout)
     finally:
         dock.destroy_dock()
 
