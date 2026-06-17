@@ -16,10 +16,13 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QRadioButton,
+    QSlider,
+    QSpinBox,
     QVBoxLayout,
 )
 
 from stickynotes import __version__
+from stickynotes.models import MAX_DOCK_WIDTH, MIN_DOCK_WIDTH
 from stickynotes.theme import dialog_stylesheet
 
 _CONTENT_WIDTH = 500
@@ -91,6 +94,22 @@ class SettingsDialog(QDialog):
         {"top": self.rt, "side": self.rs}.get(
             self.settings.get("dock_position", "top"), self.rt
         ).setChecked(True)
+        width_row = QHBoxLayout()
+        width_row.addWidget(QLabel("Dock width:"))
+        self.width_spin = QSpinBox()
+        self.width_spin.setRange(MIN_DOCK_WIDTH, MAX_DOCK_WIDTH)
+        self.width_spin.setSuffix(" px")
+        self.width_spin.setValue(
+            int(self.settings.get("dock_width", MIN_DOCK_WIDTH))
+        )
+        self.width_slider = QSlider(Qt.Orientation.Horizontal)
+        self.width_slider.setRange(MIN_DOCK_WIDTH, MAX_DOCK_WIDTH)
+        self.width_slider.setValue(self.width_spin.value())
+        self.width_spin.valueChanged.connect(self.width_slider.setValue)
+        self.width_slider.valueChanged.connect(self.width_spin.setValue)
+        width_row.addWidget(self.width_slider, 1)
+        width_row.addWidget(self.width_spin)
+        gl.addLayout(width_row)
         la.addWidget(g)
 
         self.cd = QCheckBox("Enable Dark Mode (dock, dialogs && note chrome)")
@@ -189,6 +208,7 @@ class SettingsDialog(QDialog):
     def _apply(self) -> None:
         self.settings["dock_position"] = "top" if self.rt.isChecked() else "side"
         self.settings["dark_mode"] = self.cd.isChecked()
+        self.settings["dock_width"] = self.width_spin.value()
         self.settings["default_tag"] = self.tag_combo.currentText().strip().lower()
         self.accept()
 

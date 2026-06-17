@@ -47,7 +47,7 @@ When on laptop, capture dock with at least one pinned `.lnk` / app shortcut to v
 | **VS Code Activity Bar** | 48px (36px compact) | 24px | Tooltip only | `workbench.activityBar.compact` preset |
 | **Obsidian ribbon** | 44px (`--ribbon-width`) | ~18–22px | Tooltip only | CSS hacks only |
 | **Material 3 Navigation Rail** | 80dp | 24dp | Label below icon | Fixed |
-| **StickyNotes** | **56px** | **24px** file / 20px action | **Tooltip only** | Fixed |
+| **StickyNotes** | **56px** (default; user-resizable 56–280) | **24px** file / 20px action | **Tooltip only** | Drag inner edge |
 
 **Takeaway:** Icon rails are fixed width. StickyNotes now matches the icon-only + tooltip pattern.
 
@@ -70,7 +70,7 @@ From [`stickynotes/ui/dock.py`](../../stickynotes/ui/dock.py) and [`stickynotes/
 
 | Element | Value |
 |---------|-------|
-| Dock thickness (`THICK`) | **56px** |
+| Dock thickness (`THICK` / `dock_width`) | **56px** default, **56–280px** via drag or Settings |
 | Hidden peek strip (`TRIGGER`) | **4px** |
 | Outer padding / spacing | **4px** margins, **4px** gaps |
 | Note / file / action tiles | **44×44px** |
@@ -98,9 +98,15 @@ From [`stickynotes/ui/dock.py`](../../stickynotes/ui/dock.py) and [`stickynotes/
 
 ## Remaining polish (P2, optional)
 
-1. **Wide preset** (56 → 72 in Settings) for inline file labels
+1. ~~**Wide preset** (56 → 72 in Settings) for inline file labels~~ — **superseded:** drag-resize dock width (56–280px) implemented Jun 2026
 2. **Pin actions to bottom** with max-height scroll for note/file tiles
 3. **Active-state accent** on hovered file tile (2px left border)
+
+### Drag-resize (implemented Jun 2026)
+
+- Inner-edge resize handle on the dock rail; width persisted as `dock_width` in settings (56–280px default 56).
+- Settings dialog slider/spinbox under Dock Position syncs with drag-resize.
+- Windows right-edge dock uses in-place 4px peek strip (same as left/top) so the rail stays reachable after resize.
 
 ---
 

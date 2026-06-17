@@ -14,6 +14,7 @@ from typing import Any, Callable
 from PyQt6.QtWidgets import QMessageBox
 
 from stickynotes.models import (
+    clamp_dock_width,
     default_dock_shortcut,
     default_note,
     default_settings,
@@ -75,6 +76,9 @@ class StorageManager:
             data["settings"].update(settings)
         for key, val in default_settings().items():
             data["settings"].setdefault(key, val)
+        data["settings"]["dock_width"] = clamp_dock_width(
+            data["settings"].get("dock_width", default_settings()["dock_width"])
+        )
         dp = data["settings"].get("dock_position", "top")
         if dp in ("left", "right"):
             data["settings"]["dock_position"] = "side"

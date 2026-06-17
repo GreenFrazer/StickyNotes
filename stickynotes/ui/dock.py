@@ -18,7 +18,14 @@ from PyQt6.QtCore import (
     pyqtSignal,
     QEvent,
 )
-from PyQt6.QtGui import QCursor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QPixmap
+from PyQt6.QtGui import (
+    QCursor,
+    QDragEnterEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QMouseEvent,
+    QPixmap,
+)
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
@@ -32,6 +39,9 @@ from PyQt6.QtWidgets import (
 )
 
 from stickynotes.models import (
+    MAX_DOCK_WIDTH,
+    MIN_DOCK_WIDTH,
+    clamp_dock_width,
     checklist_progress,
     dock_file_badge,
     dock_file_label,
@@ -53,6 +63,7 @@ from stickynotes.theme import (
     dock_file_label_stylesheet,
     dock_note_indicator_stylesheet,
     dock_preview_label_stylesheet,
+    dock_resize_handle_stylesheet,
     dock_scroll_stylesheet,
     dock_stylesheet,
     file_popup_stylesheet,
@@ -463,6 +474,65 @@ class DockFileIndicator(QFrame):
         super().leaveEvent(e)
 
 
+class DockResizeHandle(QWidget):
+    """Draggable strip on the dock inner edge for width/height resize."""
+
+    def __init__(self, dock: DockWidget) -> None:
+        super().__init__(dock)
+        self._dock = dock
+        self._dragging = False
+        self._start_global = 0
+        self._start_thick = 0
+        self.setObjectName("dockResizeHandle")
+        self.setStyleSheet(dock_resize_handle_stylesheet())
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+
+    def _axis_coord(self, pt: QPoint) -> int:
+        if self._dock._pos == "top":
+            return pt.y()
+        return pt.x()
+
+    def _signed_delta(self, delta: int) -> int:
+        pos = self._dock._pos
+        if pos == "right":
+            return -delta
+        return delta
+
+    def _update_cursor(self) -> None:
+        if self._dock._pos == "top":
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
+        else:
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._start_global = self._axis_coord(event.globalPosition().toPoint())
+            self._start_thick = self._dock._thick
+            self._dock._hide_tmr.stop()
+            self._dock._resize_dragging = True
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._dragging:
+            coord = self._axis_coord(event.globalPosition().toPoint())
+            delta = self._signed_delta(coord - self._start_global)
+            self._dock.set_dock_width(self._start_thick + delta, persist=True)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self._dragging and event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            self._dock._resize_dragging = False
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
 class DockWidget(QWidget):
     sig_new_note = pyqtSignal()
     sig_show_all = pyqtSignal()
@@ -476,9 +546,12 @@ class DockWidget(QWidget):
     sig_files_dropped = pyqtSignal(list)
     sig_remove_shortcut = pyqtSignal(str)
     sig_tag_filter = pyqtSignal(str)
+    sig_dock_width_changed = pyqtSignal(int)
 
-    THICK = 56
+    DEFAULT_THICK = MIN_DOCK_WIDTH
+    THICK = DEFAULT_THICK
     TRIGGER = 4
+    RESIZE_HANDLE = 7
     ANIM_MS = 200
     HIDE_MS = 600
     POLL_FAST_MS = 50
@@ -494,6 +567,7 @@ class DockWidget(QWidget):
         screen_geo: QRect | None = None,
         screen=None,
         content_getter: Callable[[str], str] | None = None,
+        dock_width: int = DEFAULT_THICK,
     ) -> None:
         super().__init__()
         self._pos = position
@@ -501,6 +575,8 @@ class DockWidget(QWidget):
         self._screen = screen
         self._screen_geo = screen_geo or QRect(0, 0, 1920, 1080)
         self._content_getter = content_getter or (lambda _nid: "")
+        self._thick = clamp_dock_width(dock_width)
+        self._resize_dragging = False
         self._shown = False
         self._anim = None
         self._btn_widgets: list[QWidget] = []
@@ -528,6 +604,9 @@ class DockWidget(QWidget):
         self.setAcceptDrops(True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self._build_ui()
+        self._resize_handle = DockResizeHandle(self)
+        self._resize_handle._update_cursor()
+        self._position_resize_handle()
         self._apply_style()
         self._poll = QTimer(self)
         self._poll_interval_ms = self.POLL_FAST_MS
@@ -615,6 +694,38 @@ class DockWidget(QWidget):
                 btn_lay.addWidget(bw)
                 self._btn_widgets.append(bw)
         outer.addLayout(btn_lay)
+
+    def _position_resize_handle(self) -> None:
+        h = self.RESIZE_HANDLE
+        w, ht = self.width(), self.height()
+        if self._pos == "left":
+            self._resize_handle.setGeometry(w - h, 0, h, ht)
+        elif self._pos == "right":
+            self._resize_handle.setGeometry(0, 0, h, ht)
+        else:
+            self._resize_handle.setGeometry(0, ht - h, w, h)
+        self._resize_handle.raise_()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._position_resize_handle()
+
+    def set_dock_width(self, width: int, *, persist: bool = True) -> None:
+        w = clamp_dock_width(width)
+        if w == self._thick:
+            return
+        self._thick = w
+        if self._shown:
+            self._set_shown_size_constraints()
+            self.setGeometry(self._shown_geo())
+        elif self._collapse_on_hide():
+            self._set_hidden_size_constraints()
+            self.setGeometry(self._hidden_geo())
+        else:
+            self.setGeometry(self._hidden_geo())
+        self._position_resize_handle()
+        if persist:
+            self.sig_dock_width_changed.emit(w)
 
     def _apply_style(self) -> None:
         self.setStyleSheet(
@@ -846,14 +957,14 @@ class DockWidget(QWidget):
         pw, ph = self._file_popup.width(), self._file_popup.height()
         g = self._screen_geo
         if self._pos == "left":
-            x = g.left() + self.THICK + 4
+            x = g.left() + self._thick + 4
             y = gpos.y() - ph // 4
         elif self._pos == "right":
-            x = g.right() - self.THICK - pw - 4
+            x = g.right() - self._thick - pw - 4
             y = gpos.y() - ph // 4
         else:
             x = gpos.x() - pw // 4
-            y = g.top() + self.THICK + 4
+            y = g.top() + self._thick + 4
         if x + pw > g.right():
             x = g.right() - pw
         if y + ph > g.bottom():
@@ -885,14 +996,14 @@ class DockWidget(QWidget):
         pw, ph = self._popup.width(), self._popup.height()
         g = self._screen_geo
         if self._pos == "left":
-            x = g.left() + self.THICK + 4
+            x = g.left() + self._thick + 4
             y = gpos.y() - ph // 4
         elif self._pos == "right":
-            x = g.right() - self.THICK - pw - 4
+            x = g.right() - self._thick - pw - 4
             y = gpos.y() - ph // 4
         else:
             x = gpos.x() - pw // 4
-            y = g.top() + self.THICK + 4
+            y = g.top() + self._thick + 4
         if x + pw > g.right():
             x = g.right() - pw
         if y + ph > g.bottom():
@@ -947,22 +1058,29 @@ class DockWidget(QWidget):
             self.setFixedWidth(self.TRIGGER)
         elif self._pos == "top":
             self.setFixedHeight(self.TRIGGER)
+        elif self._pos == "right":
+            self.setFixedWidth(self.TRIGGER)
+
+    def _clear_size_constraints(self) -> None:
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
 
     def _set_shown_size_constraints(self) -> None:
         if self._pos == "left":
-            self.setFixedWidth(self.THICK)
+            self.setFixedWidth(self._thick)
         elif self._pos == "top":
-            self.setFixedHeight(self.THICK)
+            self.setFixedHeight(self._thick)
         else:
-            self.setFixedWidth(self.THICK)
+            self.setFixedWidth(self._thick)
 
     def _collapse_on_hide(self) -> bool:
-        # Windows clamps windows that extend past the left/top virtual-desktop edge.
+        if sys.platform == "win32":
+            return self._pos in ("left", "top", "right")
         return self._pos in ("left", "top")
 
     def _shown_geo(self) -> QRect:
         g = self._screen_geo
-        t = self.THICK
+        t = self._thick
         if self._pos == "top":
             return QRect(g.left(), g.top(), g.width(), t)
         if self._pos == "left":
@@ -971,12 +1089,14 @@ class DockWidget(QWidget):
 
     def _hidden_geo(self) -> QRect:
         g = self._screen_geo
-        t = self.THICK
+        t = self._thick
         z = self.TRIGGER
         if self._pos == "top":
             return QRect(g.left(), g.top(), g.width(), z)
         if self._pos == "left":
             return QRect(g.left(), g.top(), z, g.height())
+        if self._collapse_on_hide():
+            return QRect(g.right() - z, g.top(), z, g.height())
         return QRect(g.right(), g.top(), t, g.height())
 
     def _place_hidden(self) -> None:
@@ -1011,8 +1131,9 @@ class DockWidget(QWidget):
         self.show()
         self.raise_()
         if self._collapse_on_hide():
-            self._set_shown_size_constraints()
-            self._anim_geom(self._hidden_geo(), self._shown_geo())
+            self._clear_size_constraints()
+            anim = self._anim_geom(self._hidden_geo(), self._shown_geo())
+            anim.finished.connect(self._set_shown_size_constraints)
         else:
             self.setGeometry(self._hidden_geo())
             self._anim_to(self._vis_pos())
@@ -1118,7 +1239,11 @@ class DockWidget(QWidget):
                 and self._file_popup.isVisible()
                 and self._file_popup.geometry().contains(c)
             )
-            if not popup_hover and not self._hide_tmr.isActive():
+            if (
+                not popup_hover
+                and not self._hide_tmr.isActive()
+                and not self._resize_dragging
+            ):
                 self._hide_tmr.start()
         active = hit or self._shown
         if active:

@@ -32,11 +32,24 @@ def auto_size(content: str) -> tuple[int, int]:
     return 280, 280
 
 
+MIN_DOCK_WIDTH = 56
+MAX_DOCK_WIDTH = 280
+
+
+def clamp_dock_width(width: int | float) -> int:
+    try:
+        w = int(width)
+    except (TypeError, ValueError):
+        w = MIN_DOCK_WIDTH
+    return max(MIN_DOCK_WIDTH, min(MAX_DOCK_WIDTH, w))
+
+
 def default_settings() -> dict[str, Any]:
     return {
         "dock_position": "top",
         "dark_mode": False,
         "default_tag": "",
+        "dock_width": MIN_DOCK_WIDTH,
     }
 
 

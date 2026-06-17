@@ -49,6 +49,7 @@ class AppManager:
         s = self.storage.get_settings()
         self._dock_pos = s.get("dock_position", "top")
         self._dark = s.get("dark_mode", False)
+        self._dock_width = s.get("dock_width", DockWidget.DEFAULT_THICK)
 
         self._dock_refresh_timer = QTimer()
         self._dock_refresh_timer.setSingleShot(True)
@@ -327,6 +328,7 @@ class AppManager:
                 dock.sig_files_dropped,
                 dock.sig_remove_shortcut,
                 dock.sig_tag_filter,
+                dock.sig_dock_width_changed,
             ):
                 try:
                     sig.disconnect()
@@ -352,6 +354,7 @@ class AppManager:
                 screen_geo=geo,
                 screen=scr,
                 content_getter=getter,
+                dock_width=self._dock_width,
             )
             dock.sig_new_note.connect(self.create_note)
             dock.sig_show_all.connect(self.show_all_notes)
@@ -365,8 +368,21 @@ class AppManager:
             dock.sig_files_dropped.connect(self.pin_dropped_files)
             dock.sig_remove_shortcut.connect(self.remove_shortcut)
             dock.sig_tag_filter.connect(self._set_tag_filter)
+            dock.sig_dock_width_changed.connect(self._on_dock_width_changed)
             self.docks.append(dock)
         self._refresh_all_docks()
+
+    def _on_dock_width_changed(self, width: int) -> None:
+        if width == self._dock_width:
+            return
+        self._dock_width = width
+        settings = self.storage.get_settings()
+        settings["dock_width"] = width
+        self.storage.set_settings(settings)
+        sender = self.sender()
+        for dock in self.docks:
+            if dock is not sender:
+                dock.set_dock_width(width, persist=False)
 
     def _set_tag_filter(self, tag: str) -> None:
         self._active_tag_filter = tag.strip().lower()
@@ -685,6 +701,7 @@ class AppManager:
             self.storage.set_settings(ns)
             self._dock_pos = ns["dock_position"]
             dark = ns.get("dark_mode", False)
+            self._dock_width = ns.get("dock_width", DockWidget.DEFAULT_THICK)
             if dark != self._dark:
                 self._dark = dark
                 for n in self.notes.values():
@@ -747,6 +764,7 @@ class AppManager:
                 dock.sig_files_dropped,
                 dock.sig_remove_shortcut,
                 dock.sig_tag_filter,
+                dock.sig_dock_width_changed,
             ):
                 try:
                     sig.disconnect()

@@ -123,6 +123,17 @@ def dock_stylesheet(*, dark: bool = False, drag_over: bool = False) -> str:
     """
 
 
+def dock_resize_handle_stylesheet() -> str:
+    return """
+        #dockResizeHandle {
+            background: transparent;
+        }
+        #dockResizeHandle:hover {
+            background: rgba(255,255,255,0.15);
+        }
+    """
+
+
 def dock_scroll_stylesheet() -> str:
     return """
         QScrollArea{background:transparent;border:none;}
