@@ -275,6 +275,49 @@ def test_resize_handle_drag_clamps_width(qapp, qtbot) -> None:
         dock.destroy_dock()
 
 
+def test_resize_handle_persists_width_once_on_release(qapp, qtbot) -> None:
+    geo = QRect(0, 0, 1920, 1080)
+    dock = DockWidget(
+        position="right",
+        screen_geo=geo,
+        content_getter=lambda _nid: "",
+        dock_width=100,
+    )
+    dock._poll.stop()
+    dock._hide_tmr.stop()
+    dock._shown = True
+    dock._set_shown_size_constraints()
+    dock.setGeometry(dock._shown_geo())
+    handle = dock._resize_handle
+    emitted: list[int] = []
+    dock.sig_dock_width_changed.connect(emitted.append)
+    try:
+        start = QPoint(geo.right() - 50, 540)
+        handle.mousePressEvent(_mouse_event(QMouseEvent.Type.MouseButtonPress, start))
+        handle.mouseMoveEvent(
+            _mouse_event(
+                QMouseEvent.Type.MouseMove,
+                QPoint(geo.right() - 80, 540),
+            )
+        )
+        handle.mouseMoveEvent(
+            _mouse_event(
+                QMouseEvent.Type.MouseMove,
+                QPoint(geo.right() - 120, 540),
+            )
+        )
+        assert emitted == []
+        handle.mouseReleaseEvent(
+            _mouse_event(
+                QMouseEvent.Type.MouseButtonRelease,
+                QPoint(geo.right() - 120, 540),
+            )
+        )
+        assert emitted == [dock._thick]
+    finally:
+        dock.destroy_dock()
+
+
 def test_dock_width_settings_round_trip(temp_paths) -> None:
     storage = StorageManager(temp_paths, restore_prompt=lambda: False)
     settings = storage.get_settings()

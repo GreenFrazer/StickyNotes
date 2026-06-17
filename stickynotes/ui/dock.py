@@ -483,6 +483,7 @@ class DockResizeHandle(QWidget):
         self._dragging = False
         self._start_global = 0
         self._start_thick = 0
+        self._changed = False
         self.setObjectName("dockResizeHandle")
         self.setStyleSheet(dock_resize_handle_stylesheet())
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
@@ -509,6 +510,8 @@ class DockResizeHandle(QWidget):
             self._dragging = True
             self._start_global = self._axis_coord(event.globalPosition().toPoint())
             self._start_thick = self._dock._thick
+            self._changed = False
+            self.grabMouse()
             self._dock._hide_tmr.stop()
             self._dock._resize_dragging = True
             event.accept()
@@ -519,7 +522,10 @@ class DockResizeHandle(QWidget):
         if self._dragging:
             coord = self._axis_coord(event.globalPosition().toPoint())
             delta = self._signed_delta(coord - self._start_global)
-            self._dock.set_dock_width(self._start_thick + delta, persist=True)
+            prev = self._dock._thick
+            self._dock.set_dock_width(self._start_thick + delta, persist=False)
+            if self._dock._thick != prev:
+                self._changed = True
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -528,6 +534,9 @@ class DockResizeHandle(QWidget):
         if self._dragging and event.button() == Qt.MouseButton.LeftButton:
             self._dragging = False
             self._dock._resize_dragging = False
+            self.releaseMouse()
+            if self._changed:
+                self._dock.sig_dock_width_changed.emit(self._dock._thick)
             event.accept()
             return
         super().mouseReleaseEvent(event)
