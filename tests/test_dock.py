@@ -14,7 +14,7 @@ import pytest
 from stickynotes import __version__
 from stickynotes.models import MAX_DOCK_WIDTH, MIN_DOCK_WIDTH, clamp_dock_width
 from stickynotes.storage import StorageManager
-from stickynotes.ui.dock import DockNoteIndicator, DockWidget
+from stickynotes.ui.dock import DockNoteIndicator, DockNotePopup, DockWidget
 
 
 def _make_note(content: str, *, modified_at: str = "2026-06-14T10:00:00") -> dict:
@@ -574,3 +574,29 @@ def test_side_dock_action_buttons_switch_on_resize(qapp) -> None:
 def test_top_dock_action_buttons_horizontal(dock: DockWidget) -> None:
     btn_lay = _action_button_layout(dock)
     assert isinstance(btn_lay, QHBoxLayout)
+
+
+def test_dock_note_popup_shows_primary_tag(qapp) -> None:
+    nd = _make_note("Tagged note")
+    nd["tags"] = ["work", "urgent"]
+    popup = DockNotePopup(nd, lambda _nid: nd["content"])
+    assert not popup._tag_label.isHidden()
+    assert popup._tag_label.text() == "#work"
+    assert popup._tag_label.toolTip() == "#work, #urgent"
+
+
+def test_dock_note_popup_hides_tag_when_empty(qapp) -> None:
+    nd = _make_note("No tag")
+    popup = DockNotePopup(nd, lambda _nid: nd["content"])
+    assert popup._tag_label.isHidden()
+
+
+def test_dock_note_popup_update_content_refreshes_tag(qapp) -> None:
+    nd = _make_note("Tagged note")
+    popup = DockNotePopup(nd, lambda _nid: nd["content"])
+    assert popup._tag_label.isHidden()
+    nd2 = dict(nd)
+    nd2["tags"] = ["personal"]
+    popup.update_content(nd2)
+    assert not popup._tag_label.isHidden()
+    assert popup._tag_label.text() == "#personal"

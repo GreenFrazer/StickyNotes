@@ -52,6 +52,7 @@ from stickynotes.models import (
     is_dock_pinnable_file,
     is_private,
     local_paths_from_mime_urls,
+    normalize_tags,
 )
 from stickynotes.reminders import ReminderService
 from stickynotes.theme import (
@@ -152,6 +153,10 @@ class DockNotePopup(QWidget):
         title.setObjectName("pTitleBar")
         tl = QHBoxLayout(title)
         tl.setContentsMargins(8, 2, 4, 2)
+        self._tag_label = QLabel(title)
+        self._tag_label.setObjectName("pTag")
+        self._tag_label.hide()
+        tl.addWidget(self._tag_label)
         tl.addStretch()
         self.btn_copy = QPushButton(title)
         self.btn_copy.setFixedSize(22, 22)
@@ -208,10 +213,22 @@ class DockNotePopup(QWidget):
         lo.addWidget(self.preview, 1)
         lo.addWidget(crow)
         lo.addWidget(self.ts_label)
+        self._update_tag_label(d)
         self.btn_copy.setStyleSheet(copy_button_stylesheet(size=22))
         self.setStyleSheet(note_popup_stylesheet(bg, tb))
 
+    def _update_tag_label(self, note_data: dict[str, Any]) -> None:
+        tags = normalize_tags(note_data.get("tags", []))
+        if tags:
+            self._tag_label.setText(f"#{tags[0]}")
+            self._tag_label.setToolTip(", ".join(f"#{t}" for t in tags))
+            self._tag_label.show()
+        else:
+            self._tag_label.setText("")
+            self._tag_label.hide()
+
     def update_content(self, note_data: dict[str, Any]) -> None:
+        self._update_tag_label(note_data)
         content = note_data.get("content", "")
         if is_private(note_data):
             self.preview.setText(dock_popup_preview_text())

@@ -308,6 +308,14 @@ def note_popup_stylesheet(bg: str, tb: str) -> str:
             border-top-right-radius:{RADIUS_MD}px;
             border-bottom:1px solid rgba(0,0,0,0.06);
         }}
+        #pTag {{
+            {_font(FONT_FINE)}
+            color:{INK_MUTED_80};
+            background:rgba(255,255,255,0.55);
+            border:1px solid rgba(0,0,0,0.12);
+            border-radius:9999px;
+            padding:2px 8px;
+        }}
         #pText {{
             {_font(FONT_CAPTION)}
             color:{INK};
