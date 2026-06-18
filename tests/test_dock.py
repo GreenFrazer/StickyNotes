@@ -47,6 +47,43 @@ def test_refresh_cards_ordering(dock: DockWidget) -> None:
     assert ids == [n2["id"], n3["id"], n1["id"]]
 
 
+def test_refresh_cards_respects_saved_dock_order(dock: DockWidget) -> None:
+    n1 = _make_note("First", modified_at="2026-06-14T09:00:00")
+    n2 = _make_note("Second", modified_at="2026-06-14T11:00:00")
+    n3 = _make_note("Third", modified_at="2026-06-14T10:00:00")
+    custom_order = [n1["id"], n3["id"], n2["id"]]
+    dock.refresh_cards(
+        {n1["id"]: n1, n2["id"]: n2, n3["id"]: n3},
+        [],
+        dock_order=custom_order,
+    )
+    assert dock._ordered_ids == custom_order
+    assert [ind.note_id for ind in dock._indicators] == custom_order
+
+
+def test_move_item_to_index_reorders_notes_and_files(dock: DockWidget) -> None:
+    n1 = _make_note("One")
+    n2 = _make_note("Two", modified_at="2026-06-14T12:00:00")
+    shortcut = {
+        "id": "shortcut-1",
+        "path": "C:/docs/report.pdf",
+        "label": "report",
+        "added_at": "2026-06-14T08:00:00",
+    }
+    dock.refresh_cards({n1["id"]: n1, n2["id"]: n2}, [shortcut])
+    assert dock._ordered_ids == [shortcut["id"], n2["id"], n1["id"]]
+    dock._move_item_to_index(n1["id"], 0)
+    assert dock._ordered_ids == [n1["id"], shortcut["id"], n2["id"]]
+
+
+def test_apply_dock_order_updates_layout(dock: DockWidget) -> None:
+    n1 = _make_note("One")
+    n2 = _make_note("Two", modified_at="2026-06-14T12:00:00")
+    dock.refresh_cards({n1["id"]: n1, n2["id"]: n2}, [])
+    dock.apply_dock_order([n1["id"], n2["id"]])
+    assert dock._ordered_ids == [n1["id"], n2["id"]]
+
+
 def test_update_note_card_updates_label(dock: DockWidget) -> None:
     nd = _make_note("Original")
     dock.refresh_cards({nd["id"]: nd}, [])

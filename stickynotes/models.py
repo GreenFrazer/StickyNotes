@@ -50,7 +50,69 @@ def default_settings() -> dict[str, Any]:
         "dark_mode": False,
         "default_tag": "",
         "dock_width": MIN_DOCK_WIDTH,
+        "dock_order": [],
     }
+
+
+def normalize_dock_order(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    seen: set[str] = set()
+    order: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        item_id = item.strip()
+        if not item_id or item_id in seen:
+            continue
+        seen.add(item_id)
+        order.append(item_id)
+    return order
+
+
+def default_dock_item_order(
+    shortcut_ids: list[str],
+    note_ids: list[str],
+    shortcuts_by_id: dict[str, dict[str, Any]],
+    notes_by_id: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Legacy dock order: pinned files first, then notes by most recently modified."""
+    sorted_shortcuts = sorted(
+        shortcut_ids,
+        key=lambda sid: shortcuts_by_id.get(sid, {}).get("added_at", ""),
+    )
+    sorted_notes = sorted(
+        note_ids,
+        key=lambda nid: notes_by_id.get(nid, {}).get("modified_at", ""),
+        reverse=True,
+    )
+    return sorted_shortcuts + sorted_notes
+
+
+def ordered_dock_item_ids(
+    order: list[str],
+    shortcut_ids: list[str],
+    note_ids: list[str],
+    shortcuts_by_id: dict[str, dict[str, Any]],
+    notes_by_id: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Merge saved dock order with visible items; append new items in default order."""
+    visible = set(shortcut_ids) | set(note_ids)
+    normalized = normalize_dock_order(order)
+    result: list[str] = []
+    seen: set[str] = set()
+    for item_id in normalized:
+        if item_id in visible and item_id not in seen:
+            result.append(item_id)
+            seen.add(item_id)
+    default_remaining = default_dock_item_order(
+        [sid for sid in shortcut_ids if sid not in seen],
+        [nid for nid in note_ids if nid not in seen],
+        shortcuts_by_id,
+        notes_by_id,
+    )
+    result.extend(default_remaining)
+    return result
 
 
 def default_note(note_id: str | None = None) -> dict[str, Any]:

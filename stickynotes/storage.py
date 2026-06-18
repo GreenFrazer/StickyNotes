@@ -18,6 +18,7 @@ from stickynotes.models import (
     default_dock_shortcut,
     default_note,
     default_settings,
+    normalize_dock_order,
     normalize_dock_shortcut,
     normalize_note,
 )
@@ -78,6 +79,9 @@ class StorageManager:
             data["settings"].setdefault(key, val)
         data["settings"]["dock_width"] = clamp_dock_width(
             data["settings"].get("dock_width", default_settings()["dock_width"])
+        )
+        data["settings"]["dock_order"] = normalize_dock_order(
+            data["settings"].get("dock_order")
         )
         dp = data["settings"].get("dock_position", "top")
         if dp in ("left", "right"):

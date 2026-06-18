@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from PyQt6.QtCore import (
+    QByteArray,
     QPoint,
     QPropertyAnimation,
     QRect,
@@ -17,9 +18,11 @@ from PyQt6.QtCore import (
     QTimer,
     pyqtSignal,
     QEvent,
+    QMimeData,
 )
 from PyQt6.QtGui import (
     QCursor,
+    QDrag,
     QDragEnterEvent,
     QDragMoveEvent,
     QDropEvent,
@@ -53,6 +56,7 @@ from stickynotes.models import (
     is_private,
     local_paths_from_mime_urls,
     normalize_tags,
+    ordered_dock_item_ids,
 )
 from stickynotes.reminders import ReminderService
 from stickynotes.theme import (
@@ -76,6 +80,7 @@ from stickynotes.ui.file_icons import file_icon_pixmap
 from stickynotes.ui.icons import set_button_icon
 
 DOCK_FILE_ICON_SIZE = 24
+DOCK_ITEM_MIME = "application/x-stickynotes-dock-item"
 
 
 def _make_dock_btn(
@@ -316,6 +321,16 @@ class DockNoteIndicator(QFrame):
         self.lbl_preview.setStyleSheet(dock_preview_label_stylesheet())
         lo.addWidget(self.lbl_preview)
         self._apply_appearance(note_data)
+        self._press_pos: QPoint | None = None
+        self._did_drag = False
+
+    def _find_dock(self) -> DockWidget | None:
+        parent = self.parentWidget()
+        while parent is not None:
+            if isinstance(parent, DockWidget):
+                return parent
+            parent = parent.parentWidget()
+        return None
 
     def _apply_appearance(self, note_data: dict[str, Any]) -> None:
         self._colour = note_data.get("colour", "yellow")
@@ -346,8 +361,39 @@ class DockNoteIndicator(QFrame):
         if e.button() == Qt.MouseButton.LeftButton:
             child = self.childAt(e.pos())
             if child is not self.btn_copy:
-                self.sig_click.emit(self.note_id)
+                self._press_pos = e.pos()
+                self._did_drag = False
         super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e) -> None:
+        if (
+            self._press_pos is not None
+            and not self._did_drag
+            and (e.pos() - self._press_pos).manhattanLength()
+            >= QApplication.startDragDistance()
+        ):
+            child = self.childAt(self._press_pos)
+            if child is not self.btn_copy:
+                dock = self._find_dock()
+                if dock is not None:
+                    self._did_drag = True
+                    dock._start_item_drag(self.note_id, self)
+                    self._press_pos = None
+                    return
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e) -> None:
+        if (
+            e.button() == Qt.MouseButton.LeftButton
+            and self._press_pos is not None
+            and not self._did_drag
+        ):
+            child = self.childAt(e.pos())
+            if child is not self.btn_copy:
+                self.sig_click.emit(self.note_id)
+        self._press_pos = None
+        self._did_drag = False
+        super().mouseReleaseEvent(e)
 
     def enterEvent(self, e) -> None:
         self.sig_hover_enter.emit(self.note_id, self.mapToGlobal(QPoint(0, 0)))
@@ -463,6 +509,16 @@ class DockFileIndicator(QFrame):
         if not exists:
             tip += "\n(File missing)"
         self.setToolTip(tip)
+        self._press_pos: QPoint | None = None
+        self._did_drag = False
+
+    def _find_dock(self) -> DockWidget | None:
+        parent = self.parentWidget()
+        while parent is not None:
+            if isinstance(parent, DockWidget):
+                return parent
+            parent = parent.parentWidget()
+        return None
 
     def update_shortcut(self, shortcut_data: dict[str, Any]) -> None:
         self._apply_appearance(shortcut_data)
@@ -489,8 +545,35 @@ class DockFileIndicator(QFrame):
 
     def mousePressEvent(self, e) -> None:
         if e.button() == Qt.MouseButton.LeftButton:
-            self.sig_click.emit(self.shortcut_id)
+            self._press_pos = e.pos()
+            self._did_drag = False
         super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e) -> None:
+        if (
+            self._press_pos is not None
+            and not self._did_drag
+            and (e.pos() - self._press_pos).manhattanLength()
+            >= QApplication.startDragDistance()
+        ):
+            dock = self._find_dock()
+            if dock is not None:
+                self._did_drag = True
+                dock._start_item_drag(self.shortcut_id, self)
+                self._press_pos = None
+                return
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e) -> None:
+        if (
+            e.button() == Qt.MouseButton.LeftButton
+            and self._press_pos is not None
+            and not self._did_drag
+        ):
+            self.sig_click.emit(self.shortcut_id)
+        self._press_pos = None
+        self._did_drag = False
+        super().mouseReleaseEvent(e)
 
     def enterEvent(self, e) -> None:
         self.sig_hover_enter.emit(self.shortcut_id, self.mapToGlobal(QPoint(0, 0)))
@@ -582,6 +665,7 @@ class DockWidget(QWidget):
     sig_remove_shortcut = pyqtSignal(str)
     sig_tag_filter = pyqtSignal(str)
     sig_dock_width_changed = pyqtSignal(int)
+    sig_dock_order_changed = pyqtSignal(list)
 
     DEFAULT_THICK = MIN_DOCK_WIDTH
     THICK = DEFAULT_THICK
@@ -628,6 +712,9 @@ class DockWidget(QWidget):
         self._popup_timer.timeout.connect(self._hide_popup)
         self._notes_data: dict[str, dict[str, Any]] = {}
         self._shortcuts_data: list[dict[str, Any]] = []
+        self._ordered_ids: list[str] = []
+        self._item_drag_active = False
+        self._drag_original_order: list[str] = []
         self._settings_btn: QPushButton | None = None
         self._btn_layout: QHBoxLayout | QVBoxLayout | None = None
         self._drag_over = False
@@ -842,6 +929,15 @@ class DockWidget(QWidget):
             dock_stylesheet(dark=self._dark, drag_over=self._drag_over)
         )
 
+    def _mime_is_dock_item(self, mime: QMimeData) -> bool:
+        return mime.hasFormat(DOCK_ITEM_MIME)
+
+    def _dock_item_id_from_mime(self, mime: QMimeData) -> str | None:
+        if not self._mime_is_dock_item(mime):
+            return None
+        raw = bytes(mime.data(DOCK_ITEM_MIME)).decode()
+        return raw if raw else None
+
     def _mime_has_pinnable_files(self, mime) -> bool:
         if not mime.hasUrls():
             return False
@@ -881,6 +977,9 @@ class DockWidget(QWidget):
         return super().eventFilter(obj, event)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if self._mime_is_dock_item(event.mimeData()):
+            event.acceptProposedAction()
+            return
         if self._mime_has_pinnable_files(event.mimeData()):
             event.acceptProposedAction()
             self._set_drag_over(True)
@@ -888,6 +987,15 @@ class DockWidget(QWidget):
             event.ignore()
 
     def dragMoveEvent(self, event: QDragMoveEvent) -> None:
+        if self._mime_is_dock_item(event.mimeData()):
+            item_id = self._dock_item_id_from_mime(event.mimeData())
+            if item_id and item_id in self._ordered_ids:
+                drop_idx = self._layout_drop_index(
+                    event.globalPosition().toPoint()
+                )
+                self._move_item_to_index(item_id, drop_idx)
+            event.acceptProposedAction()
+            return
         if self._mime_has_pinnable_files(event.mimeData()):
             event.acceptProposedAction()
             self._set_drag_over(True)
@@ -900,6 +1008,18 @@ class DockWidget(QWidget):
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event: QDropEvent) -> None:
+        if self._mime_is_dock_item(event.mimeData()):
+            item_id = self._dock_item_id_from_mime(event.mimeData())
+            if item_id and item_id in self._ordered_ids:
+                drop_idx = self._layout_drop_index(
+                    event.globalPosition().toPoint()
+                )
+                self._move_item_to_index(item_id, drop_idx)
+                event.acceptProposedAction()
+                self.sig_dock_order_changed.emit(list(self._ordered_ids))
+            else:
+                event.ignore()
+            return
         self._set_drag_over(False)
         paths = self._paths_from_drop(event.mimeData())
         if paths:
@@ -940,6 +1060,7 @@ class DockWidget(QWidget):
         shortcuts: list[dict[str, Any]] | None = None,
         tags: list[str] | None = None,
         active_tag: str = "",
+        dock_order: list[str] | None = None,
     ) -> None:
         del tags, active_tag
         for ind in self._file_indicators:
@@ -956,39 +1077,46 @@ class DockWidget(QWidget):
             self.ind_layout.takeAt(0)
         self._notes_data = dict(notes)
         self._shortcuts_data = list(shortcuts or [])
-        sorted_shortcuts = sorted(
-            self._shortcuts_data,
-            key=lambda s: s.get("added_at", ""),
-        )
-        for sd in sorted_shortcuts:
-            file_ind = DockFileIndicator(sd, self.ind_container)
-            file_ind.sig_click.connect(self._on_file_click)
-            file_ind.sig_hover_enter.connect(self._show_file_popup)
-            file_ind.sig_hover_leave.connect(self._schedule_hide)
-            file_ind.sig_remove.connect(self.sig_remove_shortcut.emit)
-            self.ind_layout.addWidget(file_ind)
-            self._file_indicators.append(file_ind)
-            self._file_indicator_map[sd["id"]] = file_ind
-        if sorted_shortcuts:
-            self.ind_layout.addWidget(_make_sep(self._pos == "top"))
+        shortcuts_by_id = {sd["id"]: sd for sd in self._shortcuts_data}
         dockable = [
             nd
             for nd in self._notes_data.values()
             if nd.get("content", "").strip() or nd.get("private")
         ]
-        sorted_n = sorted(
-            dockable,
-            key=lambda n: n.get("modified_at", ""),
-            reverse=True,
+        notes_by_id = {nd["id"]: nd for nd in dockable}
+        shortcut_ids = list(shortcuts_by_id.keys())
+        note_ids = list(notes_by_id.keys())
+        self._ordered_ids = ordered_dock_item_ids(
+            dock_order or [],
+            shortcut_ids,
+            note_ids,
+            shortcuts_by_id,
+            notes_by_id,
         )
-        for nd in sorted_n:
+        for item_id in self._ordered_ids:
+            if item_id in shortcuts_by_id:
+                sd = shortcuts_by_id[item_id]
+                file_ind = DockFileIndicator(sd, self.ind_container)
+                file_ind.sig_click.connect(self._on_file_click)
+                file_ind.sig_hover_enter.connect(self._show_file_popup)
+                file_ind.sig_hover_leave.connect(self._schedule_hide)
+                file_ind.sig_remove.connect(self.sig_remove_shortcut.emit)
+                self._register_dock_item_widget(file_ind)
+                self.ind_layout.addWidget(file_ind)
+                self._file_indicators.append(file_ind)
+                self._file_indicator_map[item_id] = file_ind
+                continue
+            nd = notes_by_id.get(item_id)
+            if nd is None:
+                continue
             ind = DockNoteIndicator(nd, self._content_getter, self.ind_container)
             ind.sig_click.connect(self._on_note_click)
             ind.sig_hover_enter.connect(self._show_popup)
             ind.sig_hover_leave.connect(self._schedule_hide)
+            self._register_dock_item_widget(ind)
             self.ind_layout.addWidget(ind)
             self._indicators.append(ind)
-            self._indicator_map[nd["id"]] = ind
+            self._indicator_map[item_id] = ind
         self.ind_layout.addStretch()
         self._schedule_indicator_layout()
 
@@ -1006,11 +1134,100 @@ class DockWidget(QWidget):
         else:
             self._insert_note_indicator(nid, note_data)
 
-    def _note_layout_index(self, indicator_index: int) -> int:
-        idx = len(self._file_indicators)
-        if self._file_indicators:
-            idx += 1
-        return idx + indicator_index
+    def _widget_for_id(self, item_id: str) -> QWidget | None:
+        if item_id in self._file_indicator_map:
+            return self._file_indicator_map[item_id]
+        return self._indicator_map.get(item_id)
+
+    def _register_dock_item_widget(self, widget: QWidget) -> None:
+        widget.setAcceptDrops(True)
+        widget.installEventFilter(self)
+
+    def apply_dock_order(self, order: list[str]) -> None:
+        shortcuts_by_id = {sd["id"]: sd for sd in self._shortcuts_data}
+        dockable = [
+            nd
+            for nd in self._notes_data.values()
+            if nd.get("content", "").strip() or nd.get("private")
+        ]
+        notes_by_id = {nd["id"]: nd for nd in dockable}
+        self._ordered_ids = ordered_dock_item_ids(
+            order,
+            list(shortcuts_by_id.keys()),
+            list(notes_by_id.keys()),
+            shortcuts_by_id,
+            notes_by_id,
+        )
+        self._rebuild_indicator_layout()
+
+    def _rebuild_indicator_layout(self) -> None:
+        while self.ind_layout.count():
+            self.ind_layout.takeAt(0)
+        for item_id in self._ordered_ids:
+            widget = self._widget_for_id(item_id)
+            if widget is not None:
+                self.ind_layout.addWidget(widget)
+        self.ind_layout.addStretch()
+        self._file_indicators = [
+            self._file_indicator_map[i]
+            for i in self._ordered_ids
+            if i in self._file_indicator_map
+        ]
+        self._indicators = [
+            self._indicator_map[i]
+            for i in self._ordered_ids
+            if i in self._indicator_map
+        ]
+        self._schedule_indicator_layout()
+
+    def _layout_drop_index(self, global_pos: QPoint) -> int:
+        local = self.ind_container.mapFromGlobal(global_pos)
+        horiz = self._pos == "top"
+        pos = local.x() if horiz else local.y()
+        for i, item_id in enumerate(self._ordered_ids):
+            widget = self._widget_for_id(item_id)
+            if widget is None:
+                continue
+            center = widget.geometry().center()
+            boundary = center.x() if horiz else center.y()
+            if pos < boundary:
+                return i
+        return len(self._ordered_ids)
+
+    def _move_item_to_index(self, item_id: str, new_index: int) -> None:
+        if item_id not in self._ordered_ids:
+            return
+        old_index = self._ordered_ids.index(item_id)
+        new_index = max(0, min(new_index, len(self._ordered_ids)))
+        if new_index == old_index or (
+            new_index == old_index + 1 and new_index == len(self._ordered_ids)
+        ):
+            return
+        self._ordered_ids.pop(old_index)
+        if new_index > old_index:
+            new_index -= 1
+        self._ordered_ids.insert(new_index, item_id)
+        self._rebuild_indicator_layout()
+
+    def _start_item_drag(self, item_id: str, source: QWidget) -> None:
+        self._dismiss_popups()
+        self._drag_original_order = list(self._ordered_ids)
+        self._item_drag_active = True
+        drag = QDrag(source)
+        mime = QMimeData()
+        mime.setData(DOCK_ITEM_MIME, QByteArray(item_id.encode()))
+        drag.setMimeData(mime)
+        pixmap = source.grab()
+        if not pixmap.isNull():
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(
+                QPoint(pixmap.width() // 2, pixmap.height() // 2)
+            )
+        result = drag.exec(Qt.DropAction.MoveAction)
+        self._item_drag_active = False
+        if result == Qt.DropAction.IgnoreAction:
+            self._ordered_ids = list(self._drag_original_order)
+            self._rebuild_indicator_layout()
 
     def _ensure_trailing_stretch(self) -> None:
         if self.ind_layout.count() == 0:
@@ -1021,9 +1238,7 @@ class DockWidget(QWidget):
             self.ind_layout.addStretch()
 
     def _indicator_span_px(self) -> int:
-        count = len(self._indicators) + len(self._file_indicators)
-        if self._file_indicators:
-            count += 1
+        count = len(self._ordered_ids)
         if count <= 0:
             return 0
         spacing = self.ind_layout.spacing()
@@ -1053,23 +1268,20 @@ class DockWidget(QWidget):
         ind.sig_click.connect(self._on_note_click)
         ind.sig_hover_enter.connect(self._show_popup)
         ind.sig_hover_leave.connect(self._schedule_hide)
-        mod = note_data.get("modified_at", "")
-        insert_at = len(self._indicators)
-        for i, existing in enumerate(self._indicators):
-            em = self._notes_data.get(existing.note_id, {}).get("modified_at", "")
-            if mod > em:
-                insert_at = i
-                break
-        self._indicators.insert(insert_at, ind)
         self._indicator_map[nid] = ind
+        self._indicators.append(ind)
+        self._ordered_ids.append(nid)
+        self._register_dock_item_widget(ind)
         self._ensure_trailing_stretch()
-        layout_idx = self._note_layout_index(insert_at)
+        layout_idx = max(0, self.ind_layout.count() - 1)
         self.ind_layout.insertWidget(layout_idx, ind)
         self._schedule_indicator_layout()
 
     def remove_note_card(self, nid: str) -> None:
         self._notes_data.pop(nid, None)
         ind = self._indicator_map.pop(nid, None)
+        if nid in self._ordered_ids:
+            self._ordered_ids.remove(nid)
         if ind:
             self.ind_layout.removeWidget(ind)
             ind.setParent(None)
@@ -1081,6 +1293,8 @@ class DockWidget(QWidget):
             self._popup = None
 
     def _show_file_popup(self, sid: str, gpos: QPoint) -> None:
+        if self._item_drag_active:
+            return
         if (
             self._file_popup
             and self._file_popup.shortcut_id == sid
@@ -1124,6 +1338,8 @@ class DockWidget(QWidget):
         self._file_popup.show()
 
     def _show_popup(self, nid: str, gpos: QPoint) -> None:
+        if self._item_drag_active:
+            return
         if self._popup and self._popup.note_id == nid and self._popup.isVisible():
             return
         self._popup_timer.stop()

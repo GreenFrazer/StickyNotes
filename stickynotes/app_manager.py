@@ -329,6 +329,7 @@ class AppManager:
                 dock.sig_remove_shortcut,
                 dock.sig_tag_filter,
                 dock.sig_dock_width_changed,
+                dock.sig_dock_order_changed,
             ):
                 try:
                     sig.disconnect()
@@ -371,6 +372,9 @@ class AppManager:
             dock.sig_dock_width_changed.connect(
                 lambda w, d=dock: self._on_dock_width_changed(w, d)
             )
+            dock.sig_dock_order_changed.connect(
+                lambda order, d=dock: self._on_dock_order_changed(order, d)
+            )
             self.docks.append(dock)
         self._refresh_all_docks()
 
@@ -386,6 +390,18 @@ class AppManager:
         for dock in self.docks:
             if dock is not source:
                 dock.set_dock_width(width, persist=False)
+
+    def _on_dock_order_changed(
+        self, order: list[str], source: DockWidget | None = None
+    ) -> None:
+        settings = self.storage.get_settings()
+        if settings.get("dock_order") == order:
+            return
+        settings["dock_order"] = list(order)
+        self.storage.set_settings(settings)
+        for dock in self.docks:
+            if dock is not source:
+                dock.apply_dock_order(order)
 
     def _set_tag_filter(self, tag: str) -> None:
         self._active_tag_filter = tag.strip().lower()
@@ -406,6 +422,7 @@ class AppManager:
     def _refresh_all_docks(self) -> None:
         notes = self._notes_for_dock()
         shortcuts = self.storage.get_dock_shortcuts()
+        dock_order = self.storage.get_settings().get("dock_order", [])
         tags = self._all_known_tags()
         shortcuts_signature = tuple(
             (s.get("id", ""), s.get("path", ""), s.get("label", ""), s.get("added_at", ""))
@@ -434,7 +451,13 @@ class AppManager:
                 live = dict(nd)
                 live["content"] = self.get_display_content(nid)
                 enriched[nid] = live
-            dock.refresh_cards(enriched, shortcuts, tags, self._active_tag_filter)
+            dock.refresh_cards(
+                enriched,
+                shortcuts,
+                tags,
+                self._active_tag_filter,
+                dock_order=dock_order,
+            )
         self._pending_note_updates.clear()
         self._last_dock_tags = tuple(tags)
         self._last_dock_shortcuts_signature = shortcuts_signature
@@ -770,6 +793,7 @@ class AppManager:
                 dock.sig_remove_shortcut,
                 dock.sig_tag_filter,
                 dock.sig_dock_width_changed,
+                dock.sig_dock_order_changed,
             ):
                 try:
                     sig.disconnect()
