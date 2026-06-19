@@ -76,7 +76,7 @@ from stickynotes.theme import (
 from stickynotes.ui.file_icons import file_icon_pixmap
 from stickynotes.ui.icons import set_button_icon
 
-DOCK_FILE_ICON_SIZE = 24
+DOCK_FILE_ICON_SIZE = 32
 
 
 class _DockTileReorder:
@@ -526,7 +526,7 @@ class DockFileIndicator(_DockTileReorder, QFrame):
         self.setFixedSize(44, 44)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         lo = QVBoxLayout(self)
-        lo.setContentsMargins(2, 2, 2, 2)
+        lo.setContentsMargins(1, 1, 1, 1)
         lo.setSpacing(0)
         lo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_badge = QLabel(self)
@@ -547,7 +547,7 @@ class DockFileIndicator(_DockTileReorder, QFrame):
             self.lbl_badge.setPixmap(QPixmap())
             badge = dock_file_badge(self._path)
             self.lbl_badge.setText(badge)
-            self.lbl_badge.setStyleSheet(dock_file_label_stylesheet(badge=True))
+            self.lbl_badge.setStyleSheet(dock_file_label_stylesheet(badge=True, tile=True))
         exists = bool(self._path) and os.path.isfile(self._path)
         self.setStyleSheet(dock_file_indicator_stylesheet(exists=exists))
         tip = f"{label}\n{self._path}"

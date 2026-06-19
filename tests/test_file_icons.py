@@ -158,7 +158,7 @@ def test_dock_file_indicator_tooltip_includes_label(
     path.write_text("doc", encoding="utf-8")
     with patch(
         "stickynotes.ui.dock.file_icon_pixmap",
-        return_value=QPixmap(24, 24),
+        return_value=QPixmap(DOCK_FILE_ICON_SIZE, DOCK_FILE_ICON_SIZE),
     ):
         indicator = DockFileIndicator(
             {"id": "sc-4", "path": str(path), "label": "My Report"},

@@ -50,6 +50,7 @@ FONT_FAMILY = '"SF Pro Text", system-ui, -apple-system, sans-serif'
 FONT_BODY = 17
 FONT_CAPTION = 14
 FONT_FINE = 12
+FONT_DOCK_TILE = 16
 RADIUS_MD = 11
 RADIUS_DOCK = 11
 RADIUS_SM = 8
@@ -411,9 +412,10 @@ def dock_file_indicator_stylesheet(*, exists: bool) -> str:
     """
 
 
-def dock_file_label_stylesheet(*, badge: bool = True) -> str:
+def dock_file_label_stylesheet(*, badge: bool = True, tile: bool = False) -> str:
     if badge:
-        return f"{_font(FONT_CAPTION)}font-weight:600;color:{ON_DARK};background:transparent;"
+        size = FONT_DOCK_TILE if tile else FONT_CAPTION
+        return f"{_font(size)}font-weight:600;color:{ON_DARK};background:transparent;"
     return f"{_font(FONT_FINE)}color:{BODY_MUTED};background:transparent;"
 
 
@@ -422,7 +424,7 @@ def dock_file_icon_stylesheet() -> str:
 
 
 def dock_preview_label_stylesheet() -> str:
-    return f"{_font(FONT_FINE)}color:{INK_MUTED_80};background:transparent;"
+    return f"{_font(FONT_DOCK_TILE)}color:{INK_MUTED_80};background:transparent;"
 
 
 def menu_stylesheet(*, dark: bool = False) -> str:
