@@ -83,8 +83,10 @@ class _DockTileReorder:
     """Mouse-grab reorder for dock tiles (avoids broken Qt DnD on frameless docks)."""
 
     _item_id: str
-    _press_pos: QPoint | None = None
-    _did_drag = False
+
+    def _init_reorder_state(self) -> None:
+        self._press_pos: QPoint | None = None
+        self._did_drag = False
 
     def _find_dock(self) -> DockWidget | None:
         parent = self.parentWidget()
@@ -97,13 +99,23 @@ class _DockTileReorder:
     def _reorder_blocked_child(self) -> QWidget | None:
         return None
 
+    def _press_on_blocked_child(self, pos: QPoint) -> bool:
+        blocked = self._reorder_blocked_child()
+        if blocked is None:
+            return False
+        widget = self.childAt(pos)
+        while widget is not None and widget is not self:
+            if widget is blocked:
+                return True
+            widget = widget.parentWidget()
+        return False
+
     def mousePressEvent(self, e) -> None:
-        if e.button() == Qt.MouseButton.LeftButton:
-            blocked = self._reorder_blocked_child()
-            child = self.childAt(e.pos())
-            if child is not blocked:
-                self._press_pos = e.pos()
-                self._did_drag = False
+        if e.button() == Qt.MouseButton.LeftButton and not self._press_on_blocked_child(
+            e.pos()
+        ):
+            self._press_pos = e.pos()
+            self._did_drag = False
         super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e) -> None:
@@ -117,8 +129,7 @@ class _DockTileReorder:
             and (e.pos() - self._press_pos).manhattanLength()
             >= QApplication.startDragDistance()
         ):
-            blocked = self._reorder_blocked_child()
-            if self.childAt(self._press_pos) is not blocked and dock is not None:
+            if not self._press_on_blocked_child(self._press_pos) and dock is not None:
                 self._did_drag = True
                 dock._start_manual_reorder(self._item_id, self)
                 self._press_pos = None
@@ -141,9 +152,7 @@ class _DockTileReorder:
             and self._press_pos is not None
             and not self._did_drag
         ):
-            blocked = self._reorder_blocked_child()
-            child = self.childAt(e.pos())
-            if child is not blocked:
+            if not self._press_on_blocked_child(e.pos()):
                 self._on_tile_click()
         self._press_pos = None
         self._did_drag = False
@@ -346,7 +355,7 @@ class DockNotePopup(QWidget):
             schedule_configure_floating_window(self, on_top=True)
 
 
-class DockNoteIndicator(QFrame, _DockTileReorder):
+class DockNoteIndicator(_DockTileReorder, QFrame):
     sig_click = pyqtSignal(str)
     sig_hover_enter = pyqtSignal(str, QPoint)
     sig_hover_leave = pyqtSignal(str)
@@ -358,6 +367,7 @@ class DockNoteIndicator(QFrame, _DockTileReorder):
         parent=None,
     ) -> None:
         super().__init__(parent)
+        self._init_reorder_state()
         self.note_id = note_data["id"]
         self._item_id = self.note_id
         self._content_getter = content_getter
@@ -501,7 +511,7 @@ class DockFilePopup(QWidget):
             schedule_configure_floating_window(self, on_top=True)
 
 
-class DockFileIndicator(QFrame, _DockTileReorder):
+class DockFileIndicator(_DockTileReorder, QFrame):
     sig_click = pyqtSignal(str)
     sig_hover_enter = pyqtSignal(str, QPoint)
     sig_hover_leave = pyqtSignal(str)
@@ -509,6 +519,7 @@ class DockFileIndicator(QFrame, _DockTileReorder):
 
     def __init__(self, shortcut_data: dict[str, Any], parent=None) -> None:
         super().__init__(parent)
+        self._init_reorder_state()
         self.shortcut_id = shortcut_data["id"]
         self._item_id = self.shortcut_id
         self._path = shortcut_data.get("path", "")

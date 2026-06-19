@@ -14,7 +14,14 @@ import pytest
 from stickynotes import __version__
 from stickynotes.models import MAX_DOCK_WIDTH, MIN_DOCK_WIDTH, clamp_dock_width
 from stickynotes.storage import StorageManager
-from stickynotes.ui.dock import DockNoteIndicator, DockNotePopup, DockWidget
+from stickynotes.ui.dock import (
+    DockFileIndicator,
+    DockNoteIndicator,
+    DockNotePopup,
+    DockWidget,
+    _DockTileReorder,
+)
+from PyQt6.QtWidgets import QFrame
 
 
 def _make_note(content: str, *, modified_at: str = "2026-06-14T10:00:00") -> dict:
@@ -99,6 +106,80 @@ def test_finish_manual_reorder_moves_note(dock: DockWidget) -> None:
             dock._finish_manual_reorder(QCursor.pos())
     assert dock._reorder_item_id is None
     assert not dock._item_drag_active
+
+
+def test_dock_tile_click_does_not_raise(dock: DockWidget, qtbot) -> None:
+    nd = _make_note("Click me")
+    dock.refresh_cards({nd["id"]: nd}, [])
+    ind = dock._indicator_map[nd["id"]]
+    clicks: list[str] = []
+    ind.sig_click.connect(clicks.append)
+    qtbot.mouseClick(ind, Qt.MouseButton.LeftButton)
+    assert clicks == [nd["id"]]
+
+
+def test_dock_tile_mixin_before_qframe_in_mro() -> None:
+    """Regression: mixin after QFrame made super().mousePressEvent hit object and crash."""
+    for cls in (DockNoteIndicator, DockFileIndicator):
+        mro = cls.mro()
+        assert mro.index(_DockTileReorder) < mro.index(QFrame)
+
+
+def test_file_tile_click_does_not_raise(dock: DockWidget, qtbot) -> None:
+    shortcut = {
+        "id": "shortcut-1",
+        "path": "C:/docs/report.pdf",
+        "label": "report",
+        "added_at": "2026-06-14T08:00:00",
+    }
+    dock.refresh_cards({}, [shortcut])
+    ind = dock._file_indicator_map[shortcut["id"]]
+    clicks: list[str] = []
+    ind.sig_click.connect(clicks.append)
+    qtbot.mouseClick(ind, Qt.MouseButton.LeftButton)
+    assert clicks == [shortcut["id"]]
+
+
+def test_copy_button_does_not_emit_tile_click(dock: DockWidget, qtbot) -> None:
+    nd = _make_note("Copy only")
+    dock.refresh_cards({nd["id"]: nd}, [])
+    ind = dock._indicator_map[nd["id"]]
+    clicks: list[str] = []
+    ind.sig_click.connect(clicks.append)
+    qtbot.mouseClick(ind.btn_copy, Qt.MouseButton.LeftButton)
+    assert clicks == []
+
+
+def test_dock_tile_drag_release_leaves_clean_state(
+    dock: DockWidget, qtbot
+) -> None:
+    n1 = _make_note("One")
+    n2 = _make_note("Two", modified_at="2026-06-14T12:00:00")
+    dock.refresh_cards({n1["id"]: n1, n2["id"]: n2}, [])
+    qtbot.addWidget(dock)
+    dock.show()
+    dock._shown = True
+    dock.setGeometry(dock._shown_geo())
+    qtbot.wait(50)
+    ind = dock._indicator_map[n1["id"]]
+    center = ind.rect().center()
+    qtbot.mousePress(ind, Qt.MouseButton.LeftButton, pos=center)
+    qtbot.mouseMove(ind, pos=center + QPoint(40, 0))
+    qtbot.mouseRelease(ind, Qt.MouseButton.LeftButton, pos=center + QPoint(40, 0))
+    assert dock._reorder_item_id is None
+    assert not dock._item_drag_active
+
+
+def test_rapid_tile_clicks_do_not_raise(dock: DockWidget, qtbot) -> None:
+    notes = {n["id"]: n for n in (_make_note(f"N{i}") for i in range(4))}
+    dock.refresh_cards(notes, [])
+    qtbot.addWidget(dock)
+    dock.show()
+    dock._shown = True
+    dock.setGeometry(dock._shown_geo())
+    qtbot.wait(50)
+    for ind in dock._indicators:
+        qtbot.mouseClick(ind, Qt.MouseButton.LeftButton)
 
 
 def test_update_note_card_updates_label(dock: DockWidget) -> None:
