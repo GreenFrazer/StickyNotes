@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import sys
 
-from PyQt6.QtCore import QPoint, QPointF, QRect, Qt, QByteArray, QMimeData
-from PyQt6.QtGui import QDragMoveEvent, QMouseEvent
+from PyQt6.QtCore import QPoint, QPointF, QRect, Qt
+from PyQt6.QtGui import QCursor, QMouseEvent
 
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
@@ -84,33 +84,21 @@ def test_apply_dock_order_updates_layout(dock: DockWidget) -> None:
     assert dock._ordered_ids == [n1["id"], n2["id"]]
 
 
-def test_drag_move_does_not_rebuild_layout(
-    dock: DockWidget, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_finish_manual_reorder_moves_note(dock: DockWidget) -> None:
     n1 = _make_note("One")
     n2 = _make_note("Two", modified_at="2026-06-14T12:00:00")
     dock.refresh_cards({n1["id"]: n1, n2["id"]: n2}, [])
-    rebuild_calls: list[str] = []
-    monkeypatch.setattr(
-        dock,
-        "_rebuild_indicator_layout",
-        lambda: rebuild_calls.append("rebuild"),
-    )
-    mime = QMimeData()
-    mime.setData(
-        "application/x-stickynotes-dock-item",
-        QByteArray(n1["id"].encode()),
-    )
-    event = QDragMoveEvent(
-        QPoint(22, 22),
-        Qt.DropAction.MoveAction,
-        mime,
-        Qt.MouseButton.LeftButton,
-        Qt.KeyboardModifier.NoModifier,
-    )
-    event.acceptProposedAction()
-    dock.dragMoveEvent(event)
-    assert rebuild_calls == []
+    ind = dock._indicator_map[n1["id"]]
+    dock._start_manual_reorder(n1["id"], ind)
+    try:
+        drop_x = ind.geometry().center().x()
+        global_pos = dock.ind_container.mapToGlobal(QPoint(drop_x, ind.geometry().center().y()))
+        dock._finish_manual_reorder(global_pos)
+    finally:
+        if dock._reorder_item_id:
+            dock._finish_manual_reorder(QCursor.pos())
+    assert dock._reorder_item_id is None
+    assert not dock._item_drag_active
 
 
 def test_update_note_card_updates_label(dock: DockWidget) -> None:
