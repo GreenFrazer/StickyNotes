@@ -715,6 +715,7 @@ class DockWidget(QWidget):
         self._ordered_ids: list[str] = []
         self._item_drag_active = False
         self._drag_original_order: list[str] = []
+        self._item_drag_poll_was_active = False
         self._settings_btn: QPushButton | None = None
         self._btn_layout: QHBoxLayout | QVBoxLayout | None = None
         self._drag_over = False
@@ -988,12 +989,7 @@ class DockWidget(QWidget):
 
     def dragMoveEvent(self, event: QDragMoveEvent) -> None:
         if self._mime_is_dock_item(event.mimeData()):
-            item_id = self._dock_item_id_from_mime(event.mimeData())
-            if item_id and item_id in self._ordered_ids:
-                drop_idx = self._layout_drop_index(
-                    event.globalPosition().toPoint()
-                )
-                self._move_item_to_index(item_id, drop_idx)
+            # Layout changes during dragMove crash when the drag source is a tile.
             event.acceptProposedAction()
             return
         if self._mime_has_pinnable_files(event.mimeData()):
@@ -1207,13 +1203,38 @@ class DockWidget(QWidget):
         if new_index > old_index:
             new_index -= 1
         self._ordered_ids.insert(new_index, item_id)
-        self._rebuild_indicator_layout()
+        widget = self._widget_for_id(item_id)
+        if widget is not None:
+            self.ind_layout.removeWidget(widget)
+            insert_at = min(new_index, max(0, self.ind_layout.count() - 1))
+            self.ind_layout.insertWidget(insert_at, widget)
+        self._file_indicators = [
+            self._file_indicator_map[i]
+            for i in self._ordered_ids
+            if i in self._file_indicator_map
+        ]
+        self._indicators = [
+            self._indicator_map[i]
+            for i in self._ordered_ids
+            if i in self._indicator_map
+        ]
+        self._schedule_indicator_layout()
+
+    def _begin_item_drag(self) -> None:
+        self._hide_tmr.stop()
+        self._item_drag_poll_was_active = self._poll.isActive()
+        self._poll.stop()
+
+    def _end_item_drag(self) -> None:
+        if self._item_drag_poll_was_active:
+            self._poll.start()
 
     def _start_item_drag(self, item_id: str, source: QWidget) -> None:
         self._dismiss_popups()
         self._drag_original_order = list(self._ordered_ids)
         self._item_drag_active = True
-        drag = QDrag(source)
+        self._begin_item_drag()
+        drag = QDrag(self.ind_container)
         mime = QMimeData()
         mime.setData(DOCK_ITEM_MIME, QByteArray(item_id.encode()))
         drag.setMimeData(mime)
@@ -1223,8 +1244,11 @@ class DockWidget(QWidget):
             drag.setHotSpot(
                 QPoint(pixmap.width() // 2, pixmap.height() // 2)
             )
-        result = drag.exec(Qt.DropAction.MoveAction)
-        self._item_drag_active = False
+        try:
+            result = drag.exec(Qt.DropAction.MoveAction)
+        finally:
+            self._item_drag_active = False
+            self._end_item_drag()
         if result == Qt.DropAction.IgnoreAction:
             self._ordered_ids = list(self._drag_original_order)
             self._rebuild_indicator_layout()
@@ -1578,7 +1602,7 @@ class DockWidget(QWidget):
             self._poll.setInterval(ms)
 
     def _poll_mouse(self) -> None:
-        if self._resize_dragging:
+        if self._resize_dragging or self._item_drag_active:
             return
         c = QCursor.pos()
         if (
